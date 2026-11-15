@@ -2,7 +2,21 @@
 
 This project ports the macOS ELABS-RLX-02-LXR02-CLONE-VST (Rust + nih-plug + egui) to run on Windows 11 x86 as a VST3. 
 
-## 1. Download the factory LXR presets
+## 1. Panel additions in this fork
+
+* **Voice COPY / PASTE** (bottom row, next to the size presets): copies all 37 parameters of the
+  selected voice plus its fader, survives loading another kit, and pastes between voices of the same
+  type (Drum 1/2/3 — CL HH and OP HH are the same hihat voice anyway).
+* **CONFIG page** (step key 12): the kit's master sample rate - the sample-rate reduction kits like
+  LOFIDUST store well below 127. It was the only parameter with no panel control before.
+* **MORPH page** (step key 9, "MORPH"): knob 1 picks kit A (and loads it while turning), knob 2 picks
+  the morph target kit B, knob 4 (or DATA) is the morph amount. The display shows both kits with the
+  amount right-aligned. The morph target and the amount belong to the project, not to the kit, so
+  loading another kit A keeps B.
+
+---
+
+## 2. Download the factory LXR presets
 
 They can be imported as .ZIP inside the VST3 under Browser.
 
@@ -11,25 +25,6 @@ http://sonic-potions.com/public/SdCardImage.zip
 
 LXR-01 Presets under Downloads:
 https://www.ericasynths.lv/drum-synthesizer-lxr-02-1132/
-
----
-
-## 2. Toolchain (no Visual Studio, no CMake)
-
-* **Rust** with the GNU target:
-  ```
-  rustup toolchain install stable-x86_64-pc-windows-gnu
-  rustup default stable-x86_64-pc-windows-gnu
-  ```
-* **Zig 0.17.1** (just unpacked, no installer): used as the C compiler, archiver and linker.
-* **`win/zigtool.c`**, built three times as `zigcc.exe`, `dlltool.exe` and `ar.exe`. The program picks
-  `zig cc` / `zig dlltool` / `zig ar` from its own file name and translates what Rust expects
-  (details in section 9).
-* **`win/syslib/libsynchronization.a`** – a hand-made import library for `WaitOnAddress`,
-  `WakeByAddressSingle` and `WakeByAddressAll` (Zig ships none).
-* **`.cargo/config.toml`** sets the linker, `CC_x86_64_pc_windows_gnu` and `ZIG` (absolute paths!).
-
-If the folder moves, the three paths in `.cargo/config.toml` must be updated.
 
 ---
 
@@ -51,9 +46,28 @@ If the folder moves, the three paths in `.cargo/config.toml` must be updated.
 | `install-vst3.ps1` | Copies the bundle to `C:\Program Files\Common Files\VST3` (asks for admin). |
 | `standalone.cmd` | Starts the standalone with `-p 2048`. |
 
+--- 
+
+## 4. Toolchain (no Visual Studio, no CMake)
+
+* **Rust** with the GNU target:
+  ```
+  rustup toolchain install stable-x86_64-pc-windows-gnu
+  rustup default stable-x86_64-pc-windows-gnu
+  ```
+* **Zig 0.17.1** (just unpacked, no installer): used as the C compiler, archiver and linker.
+* **`win/zigtool.c`**, built three times as `zigcc.exe`, `dlltool.exe` and `ar.exe`. The program picks
+  `zig cc` / `zig dlltool` / `zig ar` from its own file name and translates what Rust expects
+  (details in section 9).
+* **`win/syslib/libsynchronization.a`** – a hand-made import library for `WaitOnAddress`,
+  `WakeByAddressSingle` and `WakeByAddressAll` (Zig ships none).
+* **`.cargo/config.toml`** sets the linker, `CC_x86_64_pc_windows_gnu` and `ZIG` (absolute paths!).
+
+If the folder moves, the three paths in `.cargo/config.toml` must be updated.
+
 ---
 
-## 4. Build and install
+## 5. Build and install
 
 ```powershell
 cd C:\Users\bjoern\Documents\LXR-02\ELABS-RLX-02-LXR02-CLONE-VST-main
@@ -69,27 +83,6 @@ powershell -ExecutionPolicy Bypass -File .\install-vst3.ps1   # UAC, installs in
 **Important:** close the DAW before copying (the DLL is locked otherwise) and restart it afterwards.
 
 ---
-
-## 5. What works (tested)
-
-* VST3 loads in Bitwig, makes sound, every parameter can be automated
-* Preset browser: kits/patterns, search, favourites, tags, import of zips/folders
-* Import writes into `~\Music\ELABS RLX\Imported\…`
-* Saving under a new name (browser **and** the panel's SAVE page), text entry in all fields
-* Loading kits, star ratings, sequencer follows the host transport
-* 48 kHz (and any other host rate) at the correct pitch — the engine runs at 44.140 Hz internally
-
-### Panel additions in this fork
-
-* **Voice COPY / PASTE** (bottom row, next to the size presets): copies all 37 parameters of the
-  selected voice plus its fader, survives loading another kit, and pastes between voices of the same
-  type (Drum 1/2/3 — CL HH and OP HH are the same hihat voice anyway).
-* **CONFIG page** (step key 12): the kit's master sample rate - the sample-rate reduction kits like
-  LOFIDUST store well below 127. It was the only parameter with no panel control before.
-* **MORPH page** (step key 9, "MORPH"): knob 1 picks kit A (and loads it while turning), knob 2 picks
-  the morph target kit B, knob 4 (or DATA) is the morph amount. The display shows both kits with the
-  amount right-aligned. The morph target and the amount belong to the project, not to the kit, so
-  loading another kit A keeps B.
 
 ## 6. Picking this up in three steps
 
