@@ -1,4 +1,8 @@
-# Download the factory LXR presets
+# ELABS RLX – Windows x86 VST3 port
+
+The macOS project **ELABS RLX** (`ELABS-RLX-02-LXR02-CLONE-VST`, Rust + nih-plug + egui) was to run on Windows 11. 
+
+## 1. Download the factory LXR presets
 
 They can be imported as .ZIP inside the VST3 under Browser.
 
@@ -10,13 +14,6 @@ https://www.ericasynths.lv/drum-synthesizer-lxr-02-1132/
 
 ---
 
-# ELABS RLX – Windows port (project summary)
-
-## 1. What this was about
-
-The macOS project **ELABS RLX** (`ELABS-RLX-02-LXR02-CLONE-VST`, Rust + nih-plug + egui) was to run on Windows 11. 
-
----
 ## 2. Toolchain (no Visual Studio, no CMake)
 
 * **Rust** with the GNU target:
