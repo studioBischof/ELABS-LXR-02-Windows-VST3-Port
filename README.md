@@ -176,32 +176,6 @@ certificate, so macOS asks once: right-click the .pkg > Open.
 | ![Maestro](docs/maestro.jpg) | ![ENTROPIA MOD](docs/fx.jpg) |
 | ![Preset browser](docs/browser.jpg) | |
 
-## How it's built
-
-Formerly ELABS LXR; the VST3 class id is unchanged, so sets made with the old name still load it.
-
-The LXR V2 drum engine (Erica Synths, GPL-3.0 firmware from
-[erica-synths/lxr-desktop-app](https://github.com/erica-synths/lxr-desktop-app)) running as a VST3
-instrument on macOS. The firmware's sound engine is compiled from `engine/firmware` (commit in
-`engine/FIRMWARE_COMMIT`), changed only by the bounds fixes and two small hooks in `engine/patches`; `engine/shim`
-replaces the STM32 HAL and `engine/lxr_bridge.c` drives the engine the way the LXR's front panel does.
-## Build and install
-
-```sh
-cargo xtask bundle elabs_lxr --release
-cp -R "target/bundled/ELABS RLX.vst3" ~/Library/Audio/Plug-Ins/VST3/
-```
-
-Release build, one plugin for Apple Silicon and Intel (needs `rustup target add
-x86_64-apple-darwin`), packed into an installer for `/Library/Audio/Plug-Ins/VST3`:
-
-```sh
-tools/make_installer.sh        # dist/ELABS RLX <version>.pkg
-```
-
-The package is unsigned unless `SIGN_ID` names a Developer ID Installer certificate; unsigned, macOS
-asks to confirm it on first open (right click > Open).
-
 ## MIDI
 
 | Channel | Notes | Plays |
