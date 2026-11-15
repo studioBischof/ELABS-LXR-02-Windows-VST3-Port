@@ -12,10 +12,6 @@ https://www.ericasynths.lv/drum-synthesizer-lxr-02-1132/
 
 # ELABS RLX – Windows port (project summary)
 
-**Last updated:** 2026-11-15 · **Result:** a working VST3 instrument for Windows x64
-
----
-
 ## 1. What this was about
 
 The macOS project **ELABS RLX** (`ELABS-RLX-02-LXR02-CLONE-VST`, Rust + nih-plug + egui) was to run on Windows 11. 
