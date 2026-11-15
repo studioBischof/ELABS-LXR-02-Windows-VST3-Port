@@ -7,7 +7,9 @@ http://sonic-potions.com/public/SdCardImage.zip
 
 LXR-01 Presets under Downloads:
 https://www.ericasynths.lv/drum-synthesizer-lxr-02-1132/
+
 ---
+
 # ELABS RLX – Windows port (project summary)
 
 **Last updated:** 2026-11-15 · **Result:** a working VST3 instrument for Windows x64
