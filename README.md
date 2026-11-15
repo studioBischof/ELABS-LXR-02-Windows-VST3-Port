@@ -7,11 +7,141 @@ http://sonic-potions.com/public/SdCardImage.zip
 
 LXR-01 Presets under Downloads:
 https://www.ericasynths.lv/drum-synthesizer-lxr-02-1132/
+---
+# ELABS RLX – Windows port (project summary)
+
+**Last updated:** 2026-11-15 · **Result:** a working VST3 instrument for Windows x64
+
+---
+
+## 1. What this was about
+
+The macOS project **ELABS RLX** (`ELABS-RLX-02-LXR02-CLONE-VST`, Rust + nih-plug + egui) was to run on Windows 11. 
+
+---
+## 2. Toolchain (no Visual Studio, no CMake)
+
+* **Rust** with the GNU target:
+  ```
+  rustup toolchain install stable-x86_64-pc-windows-gnu
+  rustup default stable-x86_64-pc-windows-gnu
+  ```
+* **Zig 0.17.1** (just unpacked, no installer): used as the C compiler, archiver and linker.
+* **`win/zigtool.c`**, built three times as `zigcc.exe`, `dlltool.exe` and `ar.exe`. The program picks
+  `zig cc` / `zig dlltool` / `zig ar` from its own file name and translates what Rust expects
+  (details in section 9).
+* **`win/syslib/libsynchronization.a`** – a hand-made import library for `WaitOnAddress`,
+  `WakeByAddressSingle` and `WakeByAddressAll` (Zig ships none).
+* **`.cargo/config.toml`** sets the linker, `CC_x86_64_pc_windows_gnu` and `ZIG` (absolute paths!).
+
+If the folder moves, the three paths in `.cargo/config.toml` must be updated.
+
+---
+
+## 3. Files changed or added
+
+| File | Change |
+|---|---|
+| `build.rs` | Builds the firmware as **`lxr_engine.dll`** instead of `.dylib` (the macOS branch is untouched); C compiler taken from `CC`/`CC_x86_64_pc_windows_gnu`. |
+| `src/engine.rs` | Embeds `lxr_engine.dll` and writes a `.dll` copy per instance. **New resampler** from 44.140 kHz to the host rate (64-tap Blackman windowed sinc, 512 phases) instead of cubic interpolation. |
+| `src/library.rs` | Library folder from `HOME` **or** `USERPROFILE` (Windows has no `HOME`); `ensure_root()` creates `Kits/Projects/Imported`. |
+| `src/lib.rs` | Calls `ensure_root()` during initialisation. |
+| `src/editor.rs` | `zoom()` now uses the **actual** window size (`ctx.screen_rect()`) instead of the requested one — otherwise the standalone crops the panel and clicks land in the wrong place. |
+| `src/editor/browser.rs` | Stable widget ids; **own list scrolling** instead of `ScrollArea` (offset kept in `BrowserState`, own scrollbar); name field no longer swallowed by the 8-character limit; "SHOW THE LIBRARY FOLDER" uses `explorer`; import/save/tag areas got their own ids. |
+| `src/editor/save.rs` | Name field accepts more than 8 characters (rolls the last 8) instead of silently dropping keystrokes. |
+| `engine/shim/stm32f7xx_hal.h` | `arc4random()` (BSD/macOS) → xorshift under `_WIN32` (noise seeding only). |
+| `Cargo.toml` | Extra direct dependency on `egui-baseview` with the **`windows_keyboard_workaround`** feature → keyboard input in text fields. |
+| `.cargo/config.toml` | Target/linker/env for the Windows build. |
+| `win/*` | Toolchain wrappers, import library, `README.md` (build documentation). |
+| `install-vst3.ps1` | Copies the bundle to `C:\Program Files\Common Files\VST3` (asks for admin). |
+| `standalone.cmd` | Starts the standalone with `-p 2048`. |
+
+---
+
+## 4. Build and install
+
+```powershell
+cd C:\Users\bjoern\Documents\LXR-02\ELABS-RLX-02-LXR02-CLONE-VST-main
+$env:Path = "$PWD\win;$env:USERPROFILE\.cargo\bin;$env:Path"
+
+cargo test --release                      # 15 tests
+cargo xtask bundle elabs_lxr --release    # -> target\bundled\ELABS RLX.vst3
+powershell -ExecutionPolicy Bypass -File .\install-vst3.ps1   # UAC, installs into Program Files
+```
+
+`win/` must be on `PATH` — otherwise the `cc` crate cannot find `dlltool`/`ar`.
+
+**Important:** close the DAW before copying (the DLL is locked otherwise) and restart it afterwards.
+
+---
+
+## 5. What works (tested)
+
+* VST3 loads in Bitwig, makes sound, every parameter can be automated
+* Preset browser: kits/patterns, search, favourites, tags, import of zips/folders
+* Import writes into `~\Music\ELABS RLX\Imported\…`
+* Saving under a new name (browser **and** the panel's SAVE page), text entry in all fields
+* Loading kits, star ratings, sequencer follows the host transport
+* 48 kHz (and any other host rate) at the correct pitch — the engine runs at 44.140 Hz internally
+
+---
+
+## 6. Known quirks / open points
+
+1. **Standalone needs a large period.** nih-plug's WASAPI backend asserts when Windows delivers more
+   samples than configured (here: 1056 instead of 512/1024) → the audio thread dies, and since
+   nih-plug applies parameter changes on the audio thread, the whole panel looks dead.
+   → `standalone.cmd` (uses `-p 2048`).
+2. **VST3 only.** CLAP would be a one-liner in `Cargo.toml` (`features = ["vst3", "clap"]` for `nih_plug`).
+3. **Unsigned DLL** — virus scanners/hosts may warn on first load.
+4. **One engine copy per instance** is written to `%TEMP%\ELABS RLX\engine-<pid>-<n>.dll`; leftovers
+   from crashed runs are removed after 24 h.
+5. **Latency:** the sinc resampler adds 32 samples of group delay (~0.7 ms), not reported to the host.
+6. **Absolute paths** in `.cargo/config.toml` (project folder, Zig).
+7. **Kit list** scrolls with its own code — the wheel works over the list, not over the scrollbar.
+8. No git repo history of its own — the project came from a ZIP; it is now a clone of the fork
+   (`studioBischof/ELABS-RLX-02-LXR02-CLONE-VST`).
+
+---
+
+## 7. Picking this up in three steps
+
+1. Read `win/README.md` in the project (build details) — or this text from section 3 on.
+2. Run `cargo test --release`; if the linker is missing, check `.cargo/config.toml`
+   (`ZIG` path, `zigcc.exe`) and rebuild the wrappers if needed:
+   ```
+   zig cc -target x86_64-windows-gnu -O2 -o win/zigcc.exe   win/zigtool.c
+   zig cc -target x86_64-windows-gnu -O2 -o win/dlltool.exe win/zigtool.c
+   zig cc -target x86_64-windows-gnu -O2 -o win/ar.exe      win/zigtool.c
+   ```
+3. `cargo xtask bundle elabs_lxr --release` + `install-vst3.ps1`.
+
+---
+
+## 8. Debug history (so none of it is searched twice)
+
+| Symptom | Cause / fix |
+|---|---|
+| `error: unable to find dynamic system library "msvcrt"` | Rust passes `-nodefaultlibs`; Zig then drops its own libc paths → removed in the wrapper. Same for `-lmsvcrt`, `-l:libpthread.a`. |
+| `undefined symbol: WaitOnAddress` | Zig has no import library for it → `win/syslib/libsynchronization.a` (imported from `api-ms-win-core-synch-l1-2-0.dll`; this system's `kernel32.dll` does not export those symbols). |
+| `unsupported linker arg: …list.def` | rustc hands proc-macro export lists over as a `.def` → replaced with `-Wl,--export-all-symbols`. |
+| arguments inside `@response-file` not filtered | rustc puts long link lines into a response file (one argument per line, backslashes doubled) → the wrapper reads and rewrites it. |
+| `unable to find dynamic system library "windows"` | `-l<name>` makes Zig look for a DLL; the wrapper resolves `-l`/`-L` to existing `.a` files. |
+| `unable to parse target query 'x86_64-pc-windows-gnu'` | Zig wants `x86_64-windows-gnu` → mapped in the wrapper. |
+| `call to undeclared function 'arc4random'` | macOS API in the firmware shim → xorshift under `_WIN32`. |
+| `cc-rs: failed to find tool "ar"` / `dlltool` | provide wrappers as `ar.exe`/`dlltool.exe` and put `win/` on `PATH`. |
+| standalone panel does not react | WASAPI panic (1056 > 512) → `-p 2048`. |
+| text fields take no keystrokes | baseview never calls `SetFocus` for a parented window on Windows → egui-baseview's `windows_keyboard_workaround`. |
+| list jumps when a kit is picked | unstable egui ids plus `ScrollArea` bookkeeping → stable ids, then own scrolling. |
+| panel cropped in the standalone, clicks miss | `zoom` used the requested size instead of the real window size. |
+| "no home folder" when importing | Windows has no `HOME` → `USERPROFILE`. |
+| scrollbar invisible | drawn with the painter clipped to the row area → use the unclipped painter. |
 
 
 
+---
 
-# ELABS RLX
+# Original Description for ELABS RLX for macOS
 
 **The LXR-02 drum engine as a free VST3 for macOS (Apple Silicon and Intel).** It isn't an emulation:
 it's the open-source LXR V2 firmware's own C sound engine and sequencer, compiled for the Mac and
