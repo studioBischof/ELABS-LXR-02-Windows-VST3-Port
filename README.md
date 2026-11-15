@@ -130,9 +130,8 @@ powershell -ExecutionPolicy Bypass -File .\install-vst3.ps1   # UAC, installs in
 
 # Original Description for ELABS RLX for macOS
 
-**The LXR-02 drum engine as a free VST3 for macOS (Apple Silicon and Intel)**
-It isn't an emulation:
-it's the open-source LXR V2 firmware's own C sound engine and sequencer, compiled for the Mac and
+**The LXR-02 drum engine as a free VST3 for macOS (Apple Silicon and Intel).**
+It isn't an emulation: it's the open-source LXR V2 firmware's own C sound engine and sequencer, compiled for the Mac and
 wrapped in a panel laid out like the hardware. Made by EntropiaLabs.
 
 ![ELABS RLX panel](docs/panel.jpg)
