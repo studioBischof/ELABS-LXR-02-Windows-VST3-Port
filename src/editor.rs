@@ -449,7 +449,8 @@ fn voice_clipboard(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
     let stored = st.params.voice_clip.lock().ok().and_then(|c| c.clone());
     let can_paste = stored.as_ref().is_some_and(|c| voice_kind(c.voice as usize) == voice_kind(voice));
 
-    ui.painter().text(p(72.0, 246.0), Align2::LEFT_CENTER, "VOICE", FontId::proportional(4.2 * S), LABEL_DIM);
+    // right-aligned like "SIZE" on the other side: 3.5 units between the word and the first button
+    ui.painter().text(p(96.5, 246.0), Align2::RIGHT_CENTER, "VOICE", FontId::proportional(4.2 * S), LABEL_DIM);
     let cpy = Rect::from_center_size(p(112.0, 246.0), Vec2::new(24.0 * S, 7.5 * S));
     let pst = Rect::from_center_size(p(141.0, 246.0), Vec2::new(26.0 * S, 7.5 * S));
 
