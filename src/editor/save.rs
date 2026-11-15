@@ -30,11 +30,13 @@ pub(super) struct SaveState {
     focus: bool,
     /// kit image to store instead of the current parameters (the MORPH page's "save what you hear")
     baked: Option<Vec<u8>>,
+    /// the save was started on the MORPH page: go back to the kit A / kit B display when it worked
+    from_morph: bool,
 }
 
 impl Default for SaveState {
     fn default() -> Self {
-        Self { what: SaveWhat::Kit, slot: 0, name: [b' '; NAME_LEN], cursor: 0, message: None, text: String::new(), focus: false, baked: None }
+        Self { what: SaveWhat::Kit, slot: 0, name: [b' '; NAME_LEN], cursor: 0, message: None, text: String::new(), focus: false, baked: None, from_morph: false }
     }
 }
 
@@ -60,6 +62,7 @@ pub(super) fn open(st: &mut State) {
     save.slot = slot.min(seq::NUM_PATTERNS - 1);
     save.cursor = 0;
     save.baked = None;
+    save.from_morph = false;
     set_name(save, if save.what == SaveWhat::Kit { &kit } else { &project });
     save.focus = true;
 }
@@ -70,6 +73,7 @@ pub(super) fn prepare_baked(st: &mut State, data: Vec<u8>) {
     st.save.what = SaveWhat::Kit;
     open(st);
     st.save.baked = Some(data);
+    st.save.from_morph = true;
 }
 
 /// The sound as it is heard right now, morph included: at morph 0 this kit sounds like the current
@@ -99,7 +103,7 @@ pub(super) fn current_slot(st: &State) -> usize {
 }
 
 /// The name field under the display: typing goes straight into the name, Enter saves.
-pub(super) fn name_field(ui: &mut Ui, st: &mut State, rect: Rect) {
+pub(super) fn name_field(ui: &mut Ui, st: &mut State, setter: &ParamSetter, rect: Rect) {
     let lcd = name(&st.save);
     // the knobs changed the name: the field follows
     if st.save.text.trim_end() != lcd {
@@ -132,7 +136,7 @@ pub(super) fn name_field(ui: &mut Ui, st: &mut State, rect: Rect) {
     }
     if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
         let now = ui.input(|i| i.time);
-        save(st, now);
+        save(st, setter, now);
     }
 }
 
@@ -204,18 +208,32 @@ pub(super) fn reload_projects(st: &mut State) {
     st.proj_sel = selected.and_then(|n| st.projects.iter().position(|p| p.name == n)).unwrap_or(0);
 }
 
-fn save(st: &mut State, now: f64) {
+fn save(st: &mut State, setter: &ParamSetter, now: f64) {
     let name = name(&st.save);
     let name = if name.is_empty() { "NONAME".to_string() } else { name };
     let result = match st.save.what {
         SaveWhat::Kit => save_kit(st, &name, st.save.slot),
         SaveWhat::Project => save_project(st, &name),
     };
-    let text = match result {
-        Ok(text) => text,
-        Err(e) => format!("not saved: {e}"),
+    let (text, ok) = match result {
+        Ok(text) => (text, true),
+        Err(e) => (format!("not saved: {e}"), false),
     };
-    st.save.message = Some((text, now + 4.0));
+    st.save.message = Some((text.clone(), now + 4.0));
+    // a kit baked on the MORPH page holds the sound as it was heard: the morph goes back to 0 (a
+    // second morph on top of the baked values would move the sound again), the new kit becomes the
+    // loaded one, and the display shows kit A and kit B again
+    if ok && std::mem::take(&mut st.save.from_morph) {
+        setter.begin_set_parameter(&st.params.morph);
+        setter.set_parameter(&st.params.morph, 0);
+        setter.end_set_parameter(&st.params.morph);
+        if let Some(i) = st.kits.iter().rposition(|k| k.name == name) {
+            kits::load(setter, &st.params, &st.kits[i]);
+            st.kit_index = i;
+        }
+        st.page = Page::Morph;
+        history::say(st, text, now);
+    }
 }
 
 pub(super) fn lcd_rows(st: &State) -> [String; 2] {
@@ -278,7 +296,7 @@ pub(super) fn knob(ui: &mut Ui, st: &mut State, column: usize, center: Pos2, rad
     }
 }
 
-pub(super) fn encoder(ui: &mut Ui, st: &mut State, center: Pos2, radius: f32, resp: &Response) {
+pub(super) fn encoder(ui: &mut Ui, st: &mut State, setter: &ParamSetter, center: Pos2, radius: f32, resp: &Response) {
     let char_pos = CHARSET.iter().position(|&c| c == st.save.name[st.save.cursor]).unwrap_or(0);
     knob_face(ui.painter(), center, radius, Some(char_pos as f32 / (CHARSET.len() - 1) as f32), true);
     let scroll = scroll_steps(ui, resp, &mut st.scroll_accum);
@@ -288,10 +306,10 @@ pub(super) fn encoder(ui: &mut Ui, st: &mut State, center: Pos2, radius: f32, re
     }
     if resp.clicked() {
         let now = ui.input(|i| i.time);
-        save(st, now);
+        save(st, setter, now);
     }
 }
 
-pub(super) fn click_display(st: &mut State, now: f64) {
-    save(st, now);
+pub(super) fn click_display(st: &mut State, setter: &ParamSetter, now: f64) {
+    save(st, setter, now);
 }

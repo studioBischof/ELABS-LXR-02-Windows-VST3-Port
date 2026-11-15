@@ -12,7 +12,9 @@ This project ports the macOS ELABS-RLX-02-LXR02-CLONE-VST (Rust + nih-plug + egu
 * **MORPH page** (step key 9, "MORPH"): knob 1 picks kit A (and loads it while turning), knob 2 picks
   the morph target kit B, knob 4 (or DATA) is the morph amount. The display shows both kits with the
   amount right-aligned. The morph target and the amount belong to the project, not to the kit, so
-  loading another kit A keeps B.
+  loading another kit A keeps B. Knob 3 saves what is heard (morph included) as a new kit: it opens
+  the SAVE page for the name, then loads the new kit, puts the morph back to 0 (the baked values
+  already contain it) and returns to the kit A / kit B display.
 * **Text input works in every host** — Bitwig, Ableton Live, REAPER and the standalone: typing in the
   browser search field and the save/rename fields, including uppercase, punctuation and Backspace.
   Two Windows hooks on the editor thread do this (see section 7); where the host keeps the keyboard

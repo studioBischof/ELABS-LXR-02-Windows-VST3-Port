@@ -1180,7 +1180,7 @@ fn draw_lcd(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
         }
     } else if resp.clicked() && st.page == Page::Save {
         let now = ui.input(|i| i.time);
-        save::click_display(st, now);
+        save::click_display(st, setter, now);
     } else if resp.clicked() && st.page == Page::Perf {
         if let Some(pos) = resp.interact_pointer_pos() {
             st.perf_col = (((pos.x - rect.min.x) / (rect.width() / 4.0)) as usize).min(3);
@@ -1197,7 +1197,7 @@ fn draw_lcd(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
     }
     if st.page == Page::Save {
         let now = ui.input(|i| i.time);
-        save::name_field(ui, st, Rect::from_min_max(p(40.0, 93.6), p(80.0, 99.4)));
+        save::name_field(ui, st, setter, Rect::from_min_max(p(40.0, 93.6), p(80.0, 99.4)));
         painter.text(p(83.0, 96.5), Align2::LEFT_CENTER, save::caption(st, now), FontId::proportional(4.2 * S), LABEL_DIM);
     }
     let caption = match st.page {
@@ -1567,7 +1567,7 @@ fn draw_encoder(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
         return;
     }
     if st.page == Page::Save {
-        save::encoder(ui, st, center, radius, &resp);
+        save::encoder(ui, st, setter, center, radius, &resp);
         return;
     }
     match st.page {
