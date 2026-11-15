@@ -1,3 +1,16 @@
+# Download the factory LXR presets
+
+They can be imported as .ZIP inside the VST3 under Browser.
+
+Original LXR Presets:
+http://sonic-potions.com/public/SdCardImage.zip
+
+LXR-01 Presets under Downloads:
+https://www.ericasynths.lv/drum-synthesizer-lxr-02-1132/
+
+
+
+
 # ELABS RLX
 
 **The LXR-02 drum engine as a free VST3 for macOS (Apple Silicon and Intel).** It isn't an emulation:
