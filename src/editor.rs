@@ -1227,7 +1227,7 @@ fn draw_lcd(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
         painter.text(
             p(125.0, 96.5),
             Align2::CENTER_CENTER,
-            "knob 1: kit A · knob 2: kit B · knob 3: save as kit · knob 4 / DATA: morph",
+            "knob 1: kit A · knob 2: kit B · knob 3: save as kit · knob 4: morph",
             FontId::proportional(4.6 * S),
             LABEL_DIM,
         );
