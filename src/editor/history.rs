@@ -135,7 +135,7 @@ fn diff(a: &Snapshot, b: &Snapshot) -> Change {
 }
 
 /// Ends the gesture in progress, keeping what it changed as an undo step.
-fn commit(st: &mut State) {
+pub(super) fn commit(st: &mut State) {
     let Some(before) = st.history.before.take() else { return };
     let change = diff(&before, &snapshot(st));
     if change.is_empty() {
@@ -260,6 +260,11 @@ pub(super) fn begin_frame(ctx: &egui::Context, setter: &ParamSetter, st: &mut St
 }
 
 /// The last undo or redo, at the bottom of the window for a moment.
+/// A short note on the panel (the message line the undo/redo buttons use).
+pub(super) fn say(st: &mut State, text: impl Into<String>, now: f64) {
+    st.history.message = Some((text.into(), now + 1.5));
+}
+
 pub(super) fn draw_message(ui: &mut Ui, st: &State) {
     let now = ui.input(|i| i.time);
     let Some((text, until)) = &st.history.message else { return };

@@ -5,6 +5,8 @@
 //
 // The mixer hands every voice's block to lxr_voice_block() (patch 0004). While ENTROPIA is on, the
 // firmware's FX bus is switched off for the block, out 2 is mixed into out 1, and out 2 stays silent.
+// That is deliberate: ENTROPIA MOD is a master chain for the whole kit, so per-voice outputs do not
+// apply while it is on (switch the FX page back to CLASSIC to use St2).
 
 #include "lxr_bridge.h"
 

@@ -138,7 +138,8 @@ powershell -ExecutionPolicy Bypass -File .\install-vst3.ps1   # UAC, installs in
 
 # Original Description for ELABS RLX for macOS
 
-**The LXR-02 drum engine as a free VST3 for macOS (Apple Silicon and Intel).** It isn't an emulation:
+**The LXR-02 drum engine as a free VST3 for macOS (Apple Silicon and Intel) — and, in this fork, for
+Windows x64.** It isn't an emulation:
 it's the open-source LXR V2 firmware's own C sound engine and sequencer, compiled for the Mac and
 wrapped in a panel laid out like the hardware. Made by EntropiaLabs.
 
@@ -192,6 +193,36 @@ tools/make_installer.sh        # dist/ELABS RLX <version>.pkg
 
 The package is unsigned unless `SIGN_ID` names a Developer ID Installer certificate; unsigned, macOS
 asks to confirm it on first open (right click > Open).
+
+### Windows (this fork)
+
+This fork also builds as a native Windows VST3 (x64) — without Visual Studio and without CMake: Rust's
+`x86_64-pc-windows-gnu` target plus Zig as the C compiler, archiver and linker (set up in
+`.cargo/config.toml`).
+
+```powershell
+cargo xtask bundle elabs_lxr --release
+powershell -ExecutionPolicy Bypass -File .\install-vst3.ps1   # asks for admin
+```
+
+The script copies the bundle to `C:\Program Files\Common Files\VST3`. Toolchain, wrappers and every
+change the port needed: [win/README.md](win/README.md).
+
+Windows notes:
+
+- **Two outputs.** The plugin declares Out 1 and Out 2 (per voice "St2" on the MIX page). In Bitwig
+  add the second chain (right-click the device → *Add Missing Chains*) and then **reload the plugin**:
+  a running instance is not told about buses that appear later and mixes Out 2 into Out 1 instead.
+- **Text fields** (kit name, search, tags) rely on egui-baseview's `windows_keyboard_workaround` —
+  baseview never takes the keyboard focus for a window parented into a DAW.
+- **Sample-rate reduction.** Kits such as LOFIDUST store the master sample rate well below 127; it is
+  on the **CONFIG** page (step key 12).
+- **Voice COPY / PASTE** (bottom row) keeps all 37 parameters of a voice plus its fader, survives
+  loading another kit, and pastes between voices of the same type (Drum 1/2/3).
+- **ENTROPIA MOD** works on one stereo mix by design: while it is on, every voice plays on Out 1.
+- The **standalone preview** needs `lxr_preview.exe -p 2048` on Windows (or `standalone.cmd`):
+  nih-plug's WASAPI backend aborts when Windows delivers more samples than the configured period, and
+  with the audio thread gone the panel looks dead.
 
 ## MIDI
 

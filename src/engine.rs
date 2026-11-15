@@ -473,6 +473,19 @@ mod tests {
         assert!(peak > 0.1 && peak <= 1.0, "peak {peak}");
         write_wav(concat!(env!("CARGO_MANIFEST_DIR"), "/target/lxr_demo_48k.wav"), 48000, &demo);
 
+        // a voice set to St2 plays on the second output instead of the first
+        engine.set_param(215, 1); // Drum 1 AudioOut = St2
+        engine.note_on(0, 60, 110);
+        let (mut on1, mut on2) = (0.0f32, 0.0f32);
+        for _ in 0..(48000 / 2) {
+            let f = rs.next(&mut engine);
+            on1 += f[0].abs() + f[1].abs();
+            on2 += f[2].abs() + f[3].abs();
+        }
+        assert!(on2 > 1.0, "St2 voice should play on output 2, energy {on2}");
+        assert!(on1 < on2 * 0.02, "St2 voice should be silent on output 1, energy {on1} vs {on2}");
+        engine.set_param(215, 0);
+
         // a two bar beat on a few of the built-in kits, loaded like the panel does
         let kits = crate::kits::all_kits();
         let mut beat = Vec::new();

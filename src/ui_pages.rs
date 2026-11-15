@@ -87,6 +87,14 @@ pub static VOICE_PAGES: [[SubPage; 8]; 7] = [
 ];
 
 /// One sub page per FX type (off, drive, ring mod, compressor, delay, reverb)
+/// CONFIG page: the kit's global settings the panel has room for. On the unit these sit behind the
+/// CONFIG key; the one the plugin needs is the master sample rate (the LXR's sample-rate reduction),
+/// which kits like LOFIDUST store well below 127.
+pub static CONFIG_PAGE: SubPage = [
+    Some(Slot { param: 114, short: "srt", category: "Master", long: "SampleRt" }),
+    None, None, None, None, None, None, None,
+];
+
 pub static FX_PAGES: [SubPage; 6] = [
     [Some(Slot { param: 234, short: "typ", category: "Fx", long: "Type" }), Some(Slot { param: 235, short: "out", category: "Fx", long: "AudioOut" }), Some(Slot { param: 236, short: "d/w", category: "Fx", long: "Dry/Wet" }), None, None, None, None, None],
     [Some(Slot { param: 234, short: "typ", category: "Fx", long: "Type" }), Some(Slot { param: 235, short: "out", category: "Fx", long: "AudioOut" }), Some(Slot { param: 236, short: "d/w", category: "Fx", long: "Dry/Wet" }), Some(Slot { param: 237, short: "typ", category: "Fx", long: "Type" }), Some(Slot { param: 238, short: "drv", category: "Fx", long: "Overdriv" }), Some(Slot { param: 239, short: "col", category: "Fx", long: "Color" }), Some(Slot { param: 240, short: "ton", category: "Fx", long: "Tone" }), Some(Slot { param: 241, short: "vol", category: "Fx", long: "Volume" })],

@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use crate::kits::{self, Kit};
 use crate::param_table::Display;
-use crate::ui_pages::{Slot, SubPage, FX_PAGES, MOD_TARGETS, VOICE_PAGES};
+use crate::ui_pages::{Slot, SubPage, CONFIG_PAGE, FX_PAGES, MOD_TARGETS, VOICE_PAGES};
 use crate::{LxrParams, UiShared, FX_TYPE_PARAM};
 
 mod all_params;
@@ -47,7 +47,8 @@ const LCD_OFF: Color32 = Color32::from_rgb(48, 10, 9);
 const LCD_ON: Color32 = Color32::from_rgb(255, 46, 30);
 
 const VOICE_LABELS: [&str; 7] = ["DRUM1", "DRUM2", "DRUM3", "SNARE", "CLP/CYM", "CL HH", "OP HH"];
-const FADER_LABELS: [&str; 7] = ["DRUM1", "DRUM2", "DRUM3", "SNARE", "CLP/CYM", "HIHATS", "VOLUME"];
+/// parameter table groups of the six sound voices (the copy button collects a whole group)
+const VOICE_GROUPS: [&str; 6] = ["Drum 1", "Drum 2", "Drum 3", "Snare", "Cymbal", "Hihat"];const FADER_LABELS: [&str; 7] = ["DRUM1", "DRUM2", "DRUM3", "SNARE", "CLP/CYM", "HIHATS", "VOLUME"];
 const SUB_LABELS: [&str; 8] = ["OSC", "AEG", "MOD", "FM", "CLICK", "FILTER", "LFO", "MIX"];
 const SUB_HELP: [&str; 8] = [
     "OSC: oscillator (pitch, waveform)\npress again for the second row",
@@ -66,11 +67,12 @@ const STEP_LABELS: [&str; 16] = [
 const STEP_HELP: [&str; 16] = [
     "play DRUM1", "play DRUM2", "play DRUM3", "play SNARE", "play CLP/CYM", "play CL HH", "play OP HH",
     "KIT: kit browser on the display", "MORPH: not in this plugin (morph is on the LOAD page)", "SONG: song mode",
-    "PROJECT: use PATTERN or the BROWSER", "CONFIG: not in this plugin", "RELOAD: not in this plugin",
+    "PROJECT: use PATTERN or the BROWSER", "CONFIG: master sample rate (the kit's sample-rate reduction)", "RELOAD: not in this plugin",
     "LAST STEP: track length is \"len\" on the MIX page", "FX: master effect page", "PATTERN: pattern and project browser",
 ];
 const STEP_KIT: usize = 7;
 const STEP_SONG: usize = 9;
+const STEP_CONFIG: usize = 11;
 // firmware parameter numbers of the modulation destination settings
 const PAR_VEL_DEST_1: u16 = 149;
 const PAR_VOICE_LFO1: u16 = 161;
@@ -105,6 +107,8 @@ enum Page {
     Pattern,
     /// euclid generator and shuffle (PERF)
     Perf,
+    /// global settings the panel can set (CONFIG): the kit's sample-rate reduction
+    Config,
     /// save a kit or the session as a project (SAVE)
     Save,
     /// settings of the selected step (right-click a step)
@@ -188,6 +192,7 @@ impl State {
                 let fx = self.params.by_index(FX_TYPE_PARAM).map_or(0, |p| p.value()) as usize;
                 &FX_PAGES[fx.min(FX_PAGES.len() - 1)]
             }
+            Page::Config => &CONFIG_PAGE,
             Page::Load | Page::Pattern | Page::Perf | Page::Save | Page::Step | Page::Copy | Page::Song => &NO_PARAMS,
         }
     }
@@ -407,6 +412,101 @@ fn resize_corner(ui: &mut Ui, st: &mut State, zoom: f32) {
     resp.on_hover_text("drag to resize the window");
 }
 
+/// Voices that take the same parameter set: Drum 1-3 are one voice type, the others are their own.
+/// CL HH and OP HH are both the hihat voice already, so they share a type automatically.
+fn voice_kind(voice: usize) -> u8 {
+    match voice {
+        0..=2 => 0,
+        3 => 1,
+        4 => 2,
+        _ => 3,
+    }
+}
+
+/// The voice copy/paste pair in the bottom row: COPY keeps every parameter of the selected voice
+/// (plus its fader) in the plugin, PASTE writes them into it again - also after another kit was
+/// loaded, and between voices of the same type (Drum 1/2/3).
+fn voice_clipboard(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
+    let now = ui.input(|i| i.time);
+    let voice = st.last_track.min(5);
+    let stored = st.params.voice_clip.lock().ok().and_then(|c| c.clone());
+    let can_paste = stored.as_ref().is_some_and(|c| voice_kind(c.voice as usize) == voice_kind(voice));
+
+    ui.painter().text(p(72.0, 246.0), Align2::LEFT_CENTER, "VOICE", FontId::proportional(4.2 * S), LABEL_DIM);
+    let cpy = Rect::from_center_size(p(112.0, 246.0), Vec2::new(24.0 * S, 7.5 * S));
+    let pst = Rect::from_center_size(p(141.0, 246.0), Vec2::new(26.0 * S, 7.5 * S));
+
+    let fits = match voice_kind(voice) {
+        0 => "DRUM1-3",
+        _ => VOICE_LABELS[voice],
+    };
+    let copy = small_button(ui, cpy, "COPY", true)
+        .on_hover_text(format!("copy every parameter of {} - kept while other kits are loaded", fits));
+    if copy.clicked() {
+        let group = VOICE_GROUPS[voice];
+        let mut values = Vec::new();
+        let mut ord = 0u16;
+        for (i, info) in crate::param_table::PARAMS.iter().enumerate() {
+            if info.group == group {
+                values.push((ord, st.params.sound[i].value()));
+                ord += 1;
+            }
+        }
+        let fader = st.params.faders[voice].value();
+        if let Ok(mut slot) = st.params.voice_clip.lock() {
+            *slot = Some(crate::VoiceClip { voice: voice as u8, values, fader });
+        }
+        history::say(st, format!("copied {}", VOICE_LABELS[voice]), now);
+    }
+
+    let hint = match &stored {
+        Some(c) if c.voice as usize == voice => format!("paste the copied {} into the loaded kit", VOICE_LABELS[voice]),
+        Some(c) if voice_kind(c.voice as usize) == voice_kind(voice) => {
+            format!("paste the copied {} into {}", VOICE_LABELS[(c.voice as usize).min(6)], VOICE_LABELS[voice])
+        }
+        Some(c) => format!(
+            "the clipboard holds {} - it only fits {}",
+            VOICE_LABELS[(c.voice as usize).min(6)],
+            if voice_kind(c.voice as usize) == 0 { "a drum voice (DRUM1-3)" } else { "its own voice" }
+        ),
+        None => "nothing copied yet - use COPY first".to_string(),
+    };
+    if small_button(ui, pst, "PASTE", can_paste).on_hover_text(hint).clicked() && can_paste {
+        history::commit(st);
+        if let Some(c) = stored {
+            // the destination group's parameters, in the same order as the copy
+            let dest: Vec<usize> = crate::param_table::PARAMS
+                .iter()
+                .enumerate()
+                .filter(|(_, info)| info.group == VOICE_GROUPS[voice])
+                .map(|(i, _)| i)
+                .collect();
+            for (ord, value) in &c.values {
+                if let Some(&i) = dest.get(*ord as usize) {
+                    let param = &st.params.sound[i];
+                    setter.begin_set_parameter(param);
+                    setter.set_parameter(param, *value);
+                    setter.end_set_parameter(param);
+                }
+            }
+            let fader = &st.params.faders[voice];
+            setter.begin_set_parameter(fader);
+            setter.set_parameter(fader, c.fader);
+            setter.end_set_parameter(fader);
+        }
+        history::say(st, format!("pasted into {}", VOICE_LABELS[voice]), now);
+    }
+}
+
+/// A small flat button for the bottom row; greyed out (and not clickable) when disabled.
+fn small_button(ui: &mut Ui, rect: Rect, text: &str, enabled: bool) -> Response {
+    let resp = ui.allocate_rect(rect, if enabled { Sense::click() } else { Sense::hover() });
+    let painter = ui.painter();
+    painter.rect_filled(rect, 2.0, if resp.hovered() && enabled { BUTTON } else { BUTTON_DIM });
+    painter.text(rect.center(), Align2::CENTER_CENTER, text, FontId::proportional(3.8 * S), if enabled { LABEL } else { LABEL_DIM });
+    resp
+}
+
 fn draw_panel(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
     let now = ui.input(|i| i.time);
     let fired = st.shared.fired.swap(0, Ordering::AcqRel);
@@ -505,6 +605,8 @@ fn draw_panel(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
         painter.text(p(17.0 + k as f32 * 6.2, 246.0), Align2::CENTER_CENTER, c, FontId::proportional(7.0 * S), LABEL);
     }
     painter.text(p(250.0, 246.0), Align2::CENTER_CENTER, "GPL-3.0 FIRMWARE BUILD", FontId::proportional(4.5 * S), LABEL_DIM);
+
+    voice_clipboard(ui, setter, st);
 
     history::buttons(
         ui,
@@ -728,6 +830,7 @@ fn draw_panel(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
         let (lit, enabled) = match i {
             0..=6 => (now < st.led_until[i], true),
             STEP_KIT => (st.page == Page::Load, true),
+            STEP_CONFIG => (st.page == Page::Config, true),
             STEP_FX => (st.page == Page::Fx, true),
             sequencer::STEP_PATTERN => (st.page == Page::Pattern, true),
             STEP_SONG => (st.page == Page::Song, true),
@@ -747,6 +850,9 @@ fn draw_panel(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
         }
         if i == STEP_SONG && resp.clicked() {
             st.toggle_page(Page::Song);
+        }
+        if i == STEP_CONFIG && resp.clicked() {
+            st.toggle_page(Page::Config);
         }
         if i == STEP_FX && resp.clicked() && st.params.fx_mode.value() {
             st.entropia_open = true;
@@ -950,7 +1056,7 @@ fn draw_lcd(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
         };
         rows[1] = format!("{name:<8}{status:>8}");
     }
-    for column in (0..4).filter(|_| matches!(st.page, Page::Voice(_) | Page::Fx)) {
+    for column in (0..4).filter(|_| matches!(st.page, Page::Voice(_) | Page::Fx | Page::Config)) {
         let (name, value) = match st.slot(column) {
             Some(slot) => {
                 let name = if st.half * 4 + column == st.active {

@@ -36,6 +36,18 @@ const NUM_TRIGGERS: u8 = 7;
 /// PAR_FX_TYPE: selects which FX sub page the panel shows
 pub const FX_TYPE_PARAM: u16 = 234;
 
+/// What the panel's COPY button keeps: every parameter of one voice plus its fader. It lives in the
+/// plugin, not the editor, so it survives loading another kit and closing the window.
+#[derive(Clone)]
+pub(crate) struct VoiceClip {
+    /// 0-5: the voice it was copied from. Pasting goes into the same voice *type* (Drum 1-3 are one).
+    pub voice: u8,
+    /// position within the voice's parameter group, and the value - not the firmware index, so the
+    /// values land on the same parameters when pasting into another drum voice
+    pub values: Vec<(u16, i32)>,
+    pub fader: f32,
+}
+
 pub struct LxrParams {
     editor_state: Arc<EguiState>,
     sound: Vec<IntParam>,
@@ -59,6 +71,8 @@ pub struct LxrParams {
     voice_locks: AtomicU8,
     /// name of the last loaded kit, saved with the project
     kit_name: Mutex<String>,
+    /// the last copied voice, for the CPY/PST buttons on the panel
+    voice_clip: Mutex<Option<VoiceClip>>,
     /// sequencer patterns, saved with the project
     seq: SeqShared,
     /// the Maestro's settings (LANES, behind the robot), saved with the project
@@ -111,6 +125,7 @@ impl LxrParams {
             morph_version: AtomicU32::new(0),
             voice_locks: AtomicU8::new(0),
             kit_name: Mutex::new("Init".to_string()),
+            voice_clip: Mutex::new(None),
             seq: SeqShared::default(),
             maestro: maestro::MaestroShared::default(),
         }
@@ -333,7 +348,6 @@ pub struct Lxr {
     /// ENTROPIA MOD FX state last sent to the engine (NaN / None = send again)
     sent_fx: [f32; entropia::COUNT],
     sent_fx_mode: Option<bool>,
-    has_aux_out: bool,
     /// copy of the morph kit for the audio thread, and the version it was taken at
     morph_kit: Option<Vec<u8>>,
     morph_seen: u32,
@@ -359,7 +373,6 @@ impl Default for Lxr {
             sent_faders: [-1.0; 6],
             sent_fx: [f32::NAN; entropia::COUNT],
             sent_fx_mode: None,
-            has_aux_out: false,
             morph_kit: None,
             morph_seen: u32::MAX,
             sent_mutes: None,
@@ -552,11 +565,10 @@ impl Plugin for Lxr {
 
     fn initialize(
         &mut self,
-        layout: &AudioIOLayout,
+        _layout: &AudioIOLayout,
         buffer_config: &BufferConfig,
         _context: &mut impl InitContext<Self>,
     ) -> bool {
-        self.has_aux_out = !layout.aux_output_ports.is_empty();
         crate::library::ensure_root();
         self.resampler = Resampler::new(buffer_config.sample_rate);
         self.sample_rate = buffer_config.sample_rate;
@@ -622,10 +634,14 @@ impl Plugin for Lxr {
             _ => {}
         }
         let main = buffer.as_slice();
-        let mut aux_slice = match aux.outputs.first_mut() {
-            Some(b) if self.has_aux_out => Some(b.as_slice()),
-            _ => None,
-        };
+        // Decided per block from what the host actually hands over: a host negotiates the output
+        // buses before the extra chains exist, so a flag taken at initialisation time would stay
+        // false for the rest of the session and every voice would be mixed into Out 1.
+        let mut aux_slice = aux
+            .outputs
+            .first_mut()
+            .map(|b| b.as_slice())
+            .filter(|s| s.len() >= 2);
 
         let mut next_event = context.next_event();
         for i in 0..num_samples {
