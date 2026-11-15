@@ -20,6 +20,13 @@ png = "0.17"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 rfd = { version = "0.15", default-features = false }
 
+# Keyboard input on Windows: baseview never calls SetFocus when the plugin window is clicked, so a
+# parented editor (in a DAW) gets mouse events but no WM_CHAR and text fields stay dead. egui-baseview
+# has an upstream workaround for exactly that (issue #20): it asks baseview for the focus whenever egui
+# reports an IME area, which is what a focused TextEdit does. Same git revision as nih_plug_egui uses,
+# so Cargo unifies it with that one and only the feature is added.
+egui-baseview = { git = "https://github.com/BillyDM/egui-baseview.git", rev = "ec70c3fe6b2f070dcacbc22924431edbe24bd1c0", default-features = false, features = ["windows_keyboard_workaround"] }
+
 [build-dependencies]
 cc = "1"
 

@@ -904,6 +904,7 @@ version = "1.0.0"
 dependencies = [
  "base64",
  "cc",
+ "egui-baseview",
  "libloading 0.8.9",
  "nih_plug",
  "nih_plug_egui",

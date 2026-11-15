@@ -76,7 +76,7 @@ pub(super) fn name_field(ui: &mut Ui, st: &mut State, rect: Rect) {
     }
     let mut text = st.save.text.clone();
     let edit = egui::TextEdit::singleline(&mut text)
-        .char_limit(NAME_LEN)
+        .char_limit(NAME_LEN * 2)
         .font(FontId::monospace(13.0))
         .hint_text("type a name")
         .desired_width(rect.width());
@@ -85,7 +85,13 @@ pub(super) fn name_field(ui: &mut Ui, st: &mut State, rect: Rect) {
         select_all(ui, &resp, text.chars().count());
     }
     if resp.changed() {
-        let typed: String = text.chars().filter(|c| c.is_ascii() && CHARSET.contains(&(*c as u8))).take(NAME_LEN).collect();
+        // a full 8 character name would swallow the next keystroke: keep the last 8 instead, so the
+        // name types over itself like on the hardware
+        let mut typed: Vec<char> = text.chars().filter(|c| c.is_ascii() && CHARSET.contains(&(*c as u8))).collect();
+        if typed.len() > NAME_LEN {
+            typed.drain(..typed.len() - NAME_LEN);
+        }
+        let typed: String = typed.into_iter().collect();
         set_name(&mut st.save, &typed);
         st.save.cursor = typed.len().min(NAME_LEN - 1);
         st.save.text = typed;

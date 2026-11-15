@@ -1,2 +1,15 @@
 [alias]
 xtask = "run --package xtask --release --"
+
+# ---- Windows build (x86_64-pc-windows-gnu) -------------------------------------------------------
+# Rust links with Zig's clang and MinGW sysroot through win/zigcc.exe (a one-line `zig cc` front end),
+# and the firmware C sources in build.rs are compiled with the same compiler. Adjust the two absolute
+# paths if the checkout or Zig lives somewhere else.
+[target.x86_64-pc-windows-gnu]
+linker = "C:/Users/bjoern/Documents/LXR-02/ELABS-RLX-02-LXR02-CLONE-VST-main/win/zigcc.exe"
+rustflags = ["-Clink-arg=-Wl,--gc-sections"]
+
+[env]
+ZIG = { value = "C:/Users/bjoern/Documents/LXR-02/ELABS-RLX-02-LXR02-CLONE-VST-main/.toolchain/zig-x86_64-windows-0.17.1/zig.exe", force = true }
+CC_x86_64_pc_windows_gnu = { value = "C:/Users/bjoern/Documents/LXR-02/ELABS-RLX-02-LXR02-CLONE-VST-main/win/zigcc.exe", force = true }
+

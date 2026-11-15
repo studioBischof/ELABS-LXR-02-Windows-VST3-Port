@@ -3,3 +3,6 @@ target/
 __pycache__/
 *.pkg
 dist/
+.toolchain/
+win/*.exe
+win/*.pdb

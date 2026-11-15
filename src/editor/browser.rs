@@ -32,6 +32,8 @@ pub(super) struct BrowserState {
     picking: Option<std::sync::Arc<std::sync::Mutex<Option<Option<std::path::PathBuf>>>>>,
     save_name: String,
     save_focus: bool,
+    /// scroll position of the item list, in pixels (kept by hand, see the list in `draw_inner`)
+    list_offset: f32,
     /// result of the last save and until when to show it
     message: Option<(String, f64)>,
 }
@@ -53,6 +55,7 @@ impl BrowserState {
             picking: None,
             save_name: String::new(),
             save_focus: false,
+            list_offset: 0.0,
             message: None,
         }
     }
@@ -136,7 +139,7 @@ fn stars(ui: &mut Ui, origin: Pos2, size: f32, rating: u8) -> Option<u8> {
     for i in 1..=5u8 {
         let center = origin + Vec2::new((i as f32 - 0.5) * size * 1.1, 0.0);
         let rect = Rect::from_center_size(center, Vec2::splat(size));
-        let resp = ui.allocate_rect(rect, Sense::click());
+        let resp = ui.allocate_rect(rect, Sense::CLICK);
         star(ui.painter(), center, size * 0.45, i <= rating);
         if resp.clicked() {
             clicked = Some(if rating == i { 0 } else { i });
@@ -145,8 +148,23 @@ fn stars(ui: &mut Ui, origin: Pos2, size: f32, rating: u8) -> Option<u8> {
     clicked
 }
 
+/// Stars for a hand-drawn list: they do not allocate layout, so the caller keeps the geometry.
+fn stars_in(ui: &Ui, painter: &egui::Painter, id: egui::Id, origin: Pos2, size: f32, rating: u8) -> Option<u8> {
+    let mut clicked = None;
+    for i in 1..=5u8 {
+        let center = origin + Vec2::new((i as f32 - 0.5) * size * 1.1, 0.0);
+        let rect = Rect::from_center_size(center, Vec2::splat(size));
+        let resp = ui.interact(rect, id.with(i), Sense::CLICK);
+        star(painter, center, size * 0.45, i <= rating);
+        if resp.clicked() {
+            clicked = Some(if rating == i { 0 } else { i });
+        }
+    }
+    clicked
+}
+
 fn button(ui: &mut Ui, rect: Rect, text: &str, lit: bool) -> Response {
-    let resp = ui.allocate_rect(rect, Sense::click());
+    let resp = ui.allocate_rect(rect, Sense::CLICK);
     let painter = ui.painter();
     painter.rect_filled(rect, 4.0, if lit { LED_RED } else if resp.hovered() { BUTTON } else { BUTTON_DIM });
     painter.text(rect.center(), Align2::CENTER_CENTER, text, FontId::proportional(12.0), if lit { PANEL } else { LABEL });
@@ -191,12 +209,24 @@ fn save_form(ui: &mut Ui, st: &mut State, b: &mut BrowserState, right: Rect) {
     painter.text(Pos2::new(x, right.top() + 104.0), Align2::LEFT_CENTER, if b.tab == Tab::Kits { "NAME" } else { "PROJECT" }, FontId::proportional(12.0), LED_RED);
     let limit = if b.tab == Tab::Kits { 8 } else { 24 };
     let field = Rect::from_min_size(Pos2::new(x, right.top() + 114.0), Vec2::new(width, 26.0));
-    let resp = ui.put(field, egui::TextEdit::singleline(&mut b.save_name).char_limit(limit).font(FontId::proportional(14.0)).desired_width(width));
+    // The field takes more than the LXR's 8 characters so that typing always shows: with a full
+    // name and a char_limit of 8, a keystroke at the end was silently dropped and the field looked
+    // dead. The name is cut to the LXR's length when it is saved.
+    let resp = ui
+        .scope_builder(egui::UiBuilder::new().max_rect(field).id_salt("save_name"), |ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut b.save_name)
+                    .char_limit(48)
+                    .font(FontId::proportional(14.0))
+                    .desired_width(width),
+            )
+        })
+        .inner;
     if std::mem::take(&mut b.save_focus) {
         select_all(ui, &resp, b.save_name.chars().count());
     }
     let enter = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-    let name = b.save_name.trim().to_string();
+    let name: String = b.save_name.trim().chars().take(limit).collect();
     let mut result = None;
     match b.tab {
         Tab::Kits => {
@@ -286,7 +316,15 @@ fn import_form(ui: &mut Ui, st: &mut State, b: &mut BrowserState, right: Rect) {
     if button(ui, row(2.0), "SHOW THE LIBRARY FOLDER", false).on_hover_text("~/Music/ELABS RLX; kits and projects dropped in here show up too").clicked() {
         if let Some(root) = crate::library::root() {
             let _ = std::fs::create_dir_all(&root);
-            let _ = std::process::Command::new("open").arg(root).spawn();
+            let _ = std::fs::create_dir_all(root.join("Kits"));
+            let _ = std::fs::create_dir_all(root.join("Projects"));
+            let _ = std::fs::create_dir_all(root.join("Imported"));
+            #[cfg(target_os = "macos")]
+            let _ = std::process::Command::new("open").arg(&root).spawn();
+            #[cfg(target_os = "windows")]
+            let _ = std::process::Command::new("explorer").arg(&root).spawn();
+            #[cfg(all(unix, not(target_os = "macos")))]
+            let _ = std::process::Command::new("xdg-open").arg(&root).spawn();
         }
     }
     if let Some(path) = source {
@@ -344,7 +382,7 @@ fn draw_inner(ui: &mut Ui, setter: &ParamSetter, st: &mut State, b: &mut Browser
         }
     }
     let search = Rect::from_min_size(Pos2::new(336.0, 14.0), Vec2::new(220.0, 26.0));
-    ui.scope_builder(egui::UiBuilder::new().max_rect(search), |ui| {
+    ui.scope_builder(egui::UiBuilder::new().max_rect(search).id_salt("search"), |ui| {
         ui.add(egui::TextEdit::singleline(&mut b.query).hint_text("search names, banks, kits").desired_width(220.0));
     });
     if button(ui, Rect::from_min_size(Pos2::new(568.0, 14.0), Vec2::new(100.0, 26.0)), "★ favorites", b.favorites_only).clicked() {
@@ -409,7 +447,7 @@ fn draw_inner(ui: &mut Ui, setter: &ParamSetter, st: &mut State, b: &mut Browser
         }
     }
     let tags = b.favorites.all_tags();
-    ui.scope_builder(egui::UiBuilder::new().max_rect(left), |ui| {
+    ui.scope_builder(egui::UiBuilder::new().max_rect(left).id_salt("filters_area"), |ui| {
         egui::ScrollArea::vertical().id_salt("filters").show(ui, |ui| {
             ui.label(egui::RichText::new(if b.tab == Tab::Kits { "BANK" } else { "PROJECT" }).color(LED_RED).size(12.0));
             if ui.selectable_label(b.group.is_none(), "all").clicked() {
@@ -434,44 +472,86 @@ fn draw_inner(ui: &mut Ui, setter: &ParamSetter, st: &mut State, b: &mut Browser
     });
 
     // ---- middle: the list; a click loads
+    //
+    // Scrolled by hand instead of with egui's ScrollArea: with the drop-down list, the scroll area
+    // moved its offset by itself now and then when a row was picked (egui's own bookkeeping, not
+    // ours), which read as "the list jumped somewhere else". A plain offset in `BrowserState` cannot
+    // do that: it only changes when the wheel turns over the list or the scroll bar is dragged.
     let list = Rect::from_min_max(Pos2::new(208.0, 52.0), Pos2::new(690.0, h - 16.0));
     painter.rect_filled(list, 4.0, Color32::from_rgb(16, 16, 18));
     let current_kit = st.params.kit_name.lock().map(|n| n.clone()).unwrap_or_default();
     let mut to_load: Option<usize> = None;
     let mut rate: Option<(String, u8)> = None;
-    ui.scope_builder(egui::UiBuilder::new().max_rect(list.shrink(6.0)), |ui| {
-        egui::ScrollArea::vertical().id_salt("items").auto_shrink([false, false]).show_rows(ui, 24.0, shown.len(), |ui, range| {
-            for i in range {
-                let (item, entry) = &shown[i];
-                let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 24.0), Sense::click());
-                let selected = b.selected.as_deref() == Some(item.key.as_str());
-                let loaded = matches!(item.target, Target::Kit(_)) && item.name == current_kit;
-                let fill = if selected {
-                    Color32::from_rgb(70, 22, 28)
-                } else if resp.hovered() {
-                    Color32::from_rgb(34, 34, 38)
-                } else {
-                    Color32::TRANSPARENT
-                };
-                let painter = ui.painter();
-                painter.rect_filled(rect, 3.0, fill);
-                if let Some(r) = stars(ui, rect.left_center() + Vec2::new(6.0, 0.0), 13.0, entry.stars) {
-                    rate = Some((item.key.clone(), r));
-                }
-                let painter = ui.painter();
-                let x = rect.left() + 86.0;
-                let name_color = if loaded { LCD_ON } else { LABEL };
-                painter.text(Pos2::new(x, rect.center().y), Align2::LEFT_CENTER, &item.name, FontId::proportional(13.0), name_color);
-                let sub = if item.detail.is_empty() { item.group.clone() } else { format!("{} · kit {}", item.group, item.detail) };
-                painter.text(Pos2::new(x + 120.0, rect.center().y), Align2::LEFT_CENTER, sub, FontId::proportional(11.0), LABEL_DIM);
-                let tags: Vec<&str> = entry.tags.iter().map(String::as_str).take(3).collect();
-                painter.text(rect.right_center() - Vec2::new(6.0, 0.0), Align2::RIGHT_CENTER, tags.join(" · "), FontId::proportional(10.5), Color32::from_rgb(220, 140, 150));
-                if resp.clicked() {
-                    to_load = Some(i);
-                }
+    {
+        const ROW_H: f32 = 26.0;
+        let view = Rect::from_min_max(list.min + Vec2::splat(6.0), list.max - Vec2::new(14.0, 6.0));
+        let bar = Rect::from_min_max(Pos2::new(view.right() + 4.0, view.top()), Pos2::new(view.right() + 10.0, view.bottom()));
+        let content_h = shown.len() as f32 * ROW_H;
+        let max_off = (content_h - view.height()).max(0.0);
+
+        if ui.rect_contains_pointer(view) {
+            let wheel = ui.input(|i| i.raw_scroll_delta.y);
+            if wheel != 0.0 {
+                b.list_offset -= wheel;
             }
-        });
-    });
+        }
+        // the scroll bar: drag the thumb, or click anywhere on the track
+        let bar_resp = ui.interact(bar.expand2(Vec2::new(3.0, 0.0)), egui::Id::new("kit-list-bar"), Sense::click_and_drag());
+        if max_off > 0.0 && (bar_resp.dragged() || bar_resp.clicked()) {
+            if let Some(p) = bar_resp.interact_pointer_pos() {
+                let f = ((p.y - view.top()) / view.height()).clamp(0.0, 1.0);
+                b.list_offset = f * max_off;
+            }
+        }
+        b.list_offset = b.list_offset.clamp(0.0, max_off);
+
+        let painter = ui.painter().with_clip_rect(view);
+        let first = (b.list_offset / ROW_H).floor() as usize;
+        let last = (((b.list_offset + view.height()) / ROW_H).ceil() as usize + 1).min(shown.len());
+        for i in first..last {
+            let (item, entry) = &shown[i];
+            let top = view.top() + i as f32 * ROW_H - b.list_offset;
+            let rect = Rect::from_min_size(Pos2::new(view.left(), top), Vec2::new(view.width(), ROW_H - 2.0));
+            // a stable id per item, so nothing that depends on the widget order can move with the list
+            let resp = ui.interact(rect, ui.id().with(("kit-row", item.key.as_str())), Sense::CLICK);
+            let selected = b.selected.as_deref() == Some(item.key.as_str());
+            let loaded = matches!(item.target, Target::Kit(_)) && item.name == current_kit;
+            let fill = if selected {
+                Color32::from_rgb(70, 22, 28)
+            } else if resp.hovered() {
+                Color32::from_rgb(34, 34, 38)
+            } else {
+                Color32::TRANSPARENT
+            };
+            painter.rect_filled(rect, 3.0, fill);
+            if let Some(r) = stars_in(ui, &painter, egui::Id::new(("stars", item.key.as_str())), rect.left_center() + Vec2::new(6.0, 0.0), 13.0, entry.stars) {
+                rate = Some((item.key.clone(), r));
+            }
+            let x = rect.left() + 86.0;
+            let name_color = if loaded { LCD_ON } else { LABEL };
+            painter.text(Pos2::new(x, rect.center().y), Align2::LEFT_CENTER, &item.name, FontId::proportional(13.0), name_color);
+            let sub = if item.detail.is_empty() { item.group.clone() } else { format!("{} · kit {}", item.group, item.detail) };
+            painter.text(Pos2::new(x + 120.0, rect.center().y), Align2::LEFT_CENTER, sub, FontId::proportional(11.0), LABEL_DIM);
+            let tags: Vec<&str> = entry.tags.iter().map(String::as_str).take(3).collect();
+            painter.text(rect.right_center() - Vec2::new(6.0, 0.0), Align2::RIGHT_CENTER, tags.join(" · "), FontId::proportional(10.5), Color32::from_rgb(220, 140, 150));
+            if resp.clicked() {
+                to_load = Some(i);
+            }
+        }
+
+        if max_off > 0.0 {
+            // not the clipped painter: the bar sits outside the row area on purpose
+            let bar_painter = ui.painter();
+            bar_painter.rect_filled(bar, 3.0, Color32::from_rgb(24, 24, 28));
+            let thumb_h = (bar.height() * view.height() / content_h).clamp(24.0, bar.height());
+            let t = b.list_offset / max_off;
+            let thumb = Rect::from_min_size(
+                Pos2::new(bar.left(), bar.top() + t * (bar.height() - thumb_h)),
+                Vec2::new(bar.width(), thumb_h),
+            );
+            bar_painter.rect_filled(thumb, 3.0, if bar_resp.hovered() || bar_resp.dragged() { BUTTON } else { BUTTON_DIM });
+        }
+    }
     painter.text(
         Pos2::new(list.center().x, h - 8.0),
         Align2::CENTER_CENTER,
@@ -489,10 +569,10 @@ fn draw_inner(ui: &mut Ui, setter: &ParamSetter, st: &mut State, b: &mut Browser
     painter.rect_filled(right, 4.0, Color32::from_rgb(16, 16, 18));
     let selected_item = b.selected.as_ref().and_then(|k| all.iter().find(|i| &i.key == k)).filter(|_| !b.saving && !b.importing);
     if b.saving {
-        save_form(ui, st, b, right);
+        ui.scope_builder(egui::UiBuilder::new().max_rect(right).id_salt("save_form"), |ui| save_form(ui, st, b, right));
     }
     if b.importing {
-        import_form(ui, st, b, right);
+        ui.scope_builder(egui::UiBuilder::new().max_rect(right).id_salt("import_form"), |ui| import_form(ui, st, b, right));
     }
     match selected_item {
         Some(item) => {
@@ -514,7 +594,7 @@ fn draw_inner(ui: &mut Ui, setter: &ParamSetter, st: &mut State, b: &mut Browser
             painter.text(right.min + Vec2::new(12.0, 132.0), Align2::LEFT_CENTER, "TAGS", FontId::proportional(12.0), LED_RED);
             let tag_area = Rect::from_min_max(right.min + Vec2::new(10.0, 144.0), right.max - Vec2::new(10.0, 44.0));
             let mut toggle: Option<String> = None;
-            ui.scope_builder(egui::UiBuilder::new().max_rect(tag_area), |ui| {
+            ui.scope_builder(egui::UiBuilder::new().max_rect(tag_area).id_salt("tags_area"), |ui| {
                 egui::ScrollArea::vertical().id_salt("tags").show(ui, |ui| {
                     ui.horizontal_wrapped(|ui| {
                         for t in &tags {
@@ -526,7 +606,7 @@ fn draw_inner(ui: &mut Ui, setter: &ParamSetter, st: &mut State, b: &mut Browser
                 });
             });
             let new_row = Rect::from_min_max(Pos2::new(right.left() + 10.0, right.bottom() - 36.0), right.max - Vec2::new(10.0, 8.0));
-            ui.scope_builder(egui::UiBuilder::new().max_rect(new_row), |ui| {
+            ui.scope_builder(egui::UiBuilder::new().max_rect(new_row).id_salt("new_tag"), |ui| {
                 ui.horizontal(|ui| {
                     let edit = ui.add(egui::TextEdit::singleline(&mut b.new_tag).hint_text("new tag").desired_width(right.width() - 90.0));
                     let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));

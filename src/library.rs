@@ -14,7 +14,11 @@ use crate::kit_table::KIT_SIZE;
 use crate::seq::{self, Project, NUM_PATTERNS, PATTERN_BYTES};
 
 pub fn root() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|h| Path::new(&h).join("Music/ELABS RLX"))
+    // macOS/Linux: $HOME. Windows has no $HOME for GUI processes; its home is %USERPROFILE%.
+    let home = std::env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .or_else(|| std::env::var_os("USERPROFILE").filter(|h| !h.is_empty()))?;
+    Some(Path::new(&home).join("Music").join("ELABS RLX"))
 }
 
 pub fn kits_dir() -> Option<PathBuf> {
@@ -27,6 +31,15 @@ pub fn projects_dir() -> Option<PathBuf> {
 
 pub fn imported_dir() -> Option<PathBuf> {
     root().map(|r| r.join("Imported"))
+}
+
+/// Creates the library folders on first use, so there is somewhere to drop kits and projects.
+pub fn ensure_root() -> Option<PathBuf> {
+    let root = root()?;
+    let _ = std::fs::create_dir_all(root.join("Kits"));
+    let _ = std::fs::create_dir_all(root.join("Projects"));
+    let _ = std::fs::create_dir_all(root.join("Imported"));
+    Some(root)
 }
 
 /// What an import brought in.

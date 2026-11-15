@@ -30,6 +30,8 @@ fn c_files(dir: &Path, out: &mut Vec<PathBuf>) {
 fn main() {
     let engine = Path::new("engine");
     let core = engine.join("firmware/Core");
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let windows = target_os == "windows";
 
     let mut sources = Vec::new();
     c_files(&core.join("Src/Soundengine"), &mut sources);
@@ -52,8 +54,6 @@ fn main() {
         .include(core.join("Inc/Soundengine"))
         .include(core.join("Inc/Soundengine/DSPAudio"))
         .flag("-std=gnu11")
-        // same minimum macOS as the Rust side links for
-        .flag("-mmacosx-version-min=11.0")
         .flag("-include")
         .flag(engine.join("shim/stm32f7xx_hal.h").to_str().unwrap())
         // the firmware places code/data in TCM RAM sections; there is no such thing here
@@ -63,23 +63,47 @@ fn main() {
         .flag_if_supported("-w")
         // not linked into the plugin itself
         .cargo_metadata(false);
+    if !windows {
+        // same minimum macOS as the Rust side links for
+        build.flag("-mmacosx-version-min=11.0");
+    }
     build.compile("lxr_engine");
 
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
-    // built once per architecture; bundle-universal lipos the plugins together
-    let arch = match std::env::var("CARGO_CFG_TARGET_ARCH").unwrap().as_str() {
-        "aarch64" => "arm64",
-        other => other,
+    let cc = std::env::var("CC")
+        .or_else(|_| std::env::var("CC_x86_64_pc_windows_gnu"))
+        .unwrap_or_else(|_| "cc".to_string());
+
+    if windows {
+        // Windows: the engine becomes a DLL (embed.rs loads a private copy per instance). Zig's clang
+        // links it; --whole-archive keeps every translation unit, --export-all-symbols exports the API.
+        let status = std::process::Command::new(&cc)
+            .arg("-shared")
+            .arg("-o")
+            .arg(out.join("lxr_engine.dll"))
+            .arg("-Wl,--whole-archive")
+            .arg(out.join("liblxr_engine.a"))
+            .arg("-Wl,--no-whole-archive")
+            .args(["-Wl,--export-all-symbols", "-lm", "-lmingw32"])
+            .status()
+            .expect("run cc");
+        assert!(status.success(), "linking lxr_engine.dll failed");
+    } else {
+        // built once per architecture; bundle-universal lipos the plugins together
+        let arch = match std::env::var("CARGO_CFG_TARGET_ARCH").unwrap().as_str() {
+            "aarch64" => "arm64",
+            other => other,
+        }
+        .to_string();
+        let status = std::process::Command::new("cc")
+            .args(["-dynamiclib", "-arch", &arch, "-mmacosx-version-min=11.0", "-o"])
+            .arg(out.join("lxr_engine.dylib"))
+            .arg(format!("-Wl,-force_load,{}", out.join("liblxr_engine.a").display()))
+            .args(["-install_name", "@rpath/lxr_engine.dylib", "-lm"])
+            .status()
+            .expect("run cc");
+        assert!(status.success(), "linking lxr_engine.dylib failed");
     }
-    .to_string();
-    let status = std::process::Command::new("cc")
-        .args(["-dynamiclib", "-arch", &arch, "-mmacosx-version-min=11.0", "-o"])
-        .arg(out.join("lxr_engine.dylib"))
-        .arg(format!("-Wl,-force_load,{}", out.join("liblxr_engine.a").display()))
-        .args(["-install_name", "@rpath/lxr_engine.dylib", "-lm"])
-        .status()
-        .expect("run cc");
-    assert!(status.success(), "linking lxr_engine.dylib failed");
 
     println!("cargo:rerun-if-changed=engine");
 }

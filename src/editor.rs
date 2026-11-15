@@ -307,7 +307,7 @@ pub fn create(params: Arc<LxrParams>, shared: Arc<UiShared>) -> Option<Box<dyn E
     create_egui_editor(params.editor_state.clone(), state, |ctx, state| state.logo = load_logo(ctx), |ctx, setter, state| {
         // the panel is drawn at its base size on a layer scaled to the window (egui-baseview
         // ignores egui's own zoom factor); the layer transform scales the mouse input too
-        let zoom = zoom(&state.params.editor_state);
+        let zoom = zoom(ctx);
         history::begin_frame(ctx, setter, state);
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(PANEL)).show(ctx, |_| {});
         let id = egui::Id::new("lxr-panel");
@@ -372,9 +372,15 @@ fn turning(ui: &Ui, resp: &Response) -> bool {
 /// Window sizes offered as presets, in percent of the base size.
 const SIZES: [u32; 5] = [75, 100, 125, 150, 200];
 
-fn zoom(editor_state: &EguiState) -> f32 {
-    let (w, h) = editor_state.size();
-    (w as f32 / WIDTH as f32).min(h as f32 / HEIGHT as f32).clamp(0.25, 4.0)
+/// The scale that makes the panel fit the window that is really there.
+///
+/// It used to come from the editor's *requested* size, which is what a host normally grants — but a
+/// window that ends up smaller (the standalone app, for one) then draws the panel unscaled at
+/// 998x503 inside a smaller window: the right and bottom of it are cut off, and the layer transform
+/// that maps the mouse into the panel is off by the same factor, so nothing responds any more.
+fn zoom(ctx: &egui::Context) -> f32 {
+    let size = ctx.screen_rect().size();
+    (size.x / WIDTH as f32).min(size.y / HEIGHT as f32).clamp(0.25, 4.0)
 }
 
 fn request_scale(editor_state: &EguiState, scale: f32) {
@@ -510,7 +516,7 @@ fn draw_panel(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
 
     // window size presets
     painter.text(p(400.0, 246.0), Align2::RIGHT_CENTER, "SIZE", FontId::proportional(4.2 * S), LABEL_DIM);
-    let current = (zoom(&st.params.editor_state) * 100.0).round() as u32;
+    let current = (zoom(ui.ctx()) * 100.0).round() as u32;
     for (i, size) in SIZES.iter().enumerate() {
         let r = Rect::from_center_size(p(412.0 + i as f32 * 20.0, 246.0), Vec2::new(17.0 * S, 7.5 * S));
         let resp = ui.allocate_rect(r, Sense::click());

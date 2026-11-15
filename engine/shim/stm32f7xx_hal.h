@@ -17,6 +17,17 @@ static inline uint64_t __SMLALD(uint32_t a,uint32_t b,uint64_t acc){return acc+(
 #define __CLZ(x) ((x)?__builtin_clz(x):32)
 #define I2S_AUDIOFREQ_44K 44100u
 typedef struct { int dummy; } RNG_HandleTypeDef;
+#ifdef _WIN32
+/* Windows has no arc4random(); the firmware only uses this to seed noise, so a xorshift is plenty. */
+static inline uint32_t lxr_win_rng(void)
+{
+    static uint32_t s = 0x9e3779b9u;
+    if (!s) s = 0x9e3779b9u;
+    s ^= s << 13; s ^= s >> 17; s ^= s << 5;
+    return s;
+}
+#define arc4random lxr_win_rng
+#endif
 static inline uint32_t HAL_RNG_GetRandomNumber(RNG_HandleTypeDef*h){(void)h;return (uint32_t)arc4random();}
 typedef struct { int dummy; } I2S_HandleTypeDef, UART_HandleTypeDef, TIM_HandleTypeDef, DMA_HandleTypeDef, SPI_HandleTypeDef, ADC_HandleTypeDef;
 typedef struct { volatile uint32_t CTRL, CYCCNT; } DWT_Type; static DWT_Type _dwt; 

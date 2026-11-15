@@ -557,6 +557,7 @@ impl Plugin for Lxr {
         _context: &mut impl InitContext<Self>,
     ) -> bool {
         self.has_aux_out = !layout.aux_output_ports.is_empty();
+        crate::library::ensure_root();
         self.resampler = Resampler::new(buffer_config.sample_rate);
         self.sample_rate = buffer_config.sample_rate;
         if self.engine.is_none() {

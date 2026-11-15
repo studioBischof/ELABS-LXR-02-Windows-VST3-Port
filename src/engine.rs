@@ -13,8 +13,14 @@ pub const BLOCK_FRAMES: usize = 64;
 /// The rate the firmware's tables and coefficients are tuned for (the hardware's real I2S rate).
 pub const ENGINE_RATE: f64 = 44140.0;
 
+#[cfg(target_os = "windows")]
+static ENGINE_DYLIB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/lxr_engine.dll"));
+#[cfg(not(target_os = "windows"))]
 static ENGINE_DYLIB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/lxr_engine.dylib"));
 static NEXT_COPY: AtomicUsize = AtomicUsize::new(0);
+
+/// The file extension the embedded engine is written with; on Windows it has to be a real DLL.
+const ENGINE_EXT: &str = if cfg!(target_os = "windows") { "dll" } else { "dylib" };
 
 macro_rules! engine_api {
     ($($name:ident: fn($($arg:ty),*) $(-> $ret:ty)?;)*) => {
@@ -95,7 +101,7 @@ impl Engine {
         std::fs::create_dir_all(&dir).ok()?;
         remove_stale_copies(&dir);
         let copy = NEXT_COPY.fetch_add(1, Ordering::Relaxed);
-        let path = dir.join(format!("engine-{}-{copy}.dylib", std::process::id()));
+        let path = dir.join(format!("engine-{}-{copy}.{}", std::process::id(), ENGINE_EXT));
         std::fs::write(&path, ENGINE_DYLIB).ok()?;
         // the file stays until the engine is dropped: as long as it exists no other copy can get its
         // inode, which the dynamic loader uses to tell libraries apart
@@ -291,49 +297,83 @@ impl SeqClock {
     }
 }
 
-/// Pulls engine blocks on demand and interpolates them (4-point cubic Hermite) to the host rate.
+/// Pulls engine blocks on demand and resamples them to the host rate with a windowed-sinc
+/// (Blackman, 64 taps, 512 phases). The engine's 44.14 kHz and any host rate differ by a
+/// non-integer factor, so this is a real rate conversion: the low-pass at the lower of the two
+/// Nyquist frequencies keeps the images that plain interpolation would fold back into the audible band.
 pub struct Resampler {
     frames: Vec<[f32; 4]>,
     pos: f64,
     step: f64,
+    table: Vec<f32>,
+}
+
+/// Taps on each side of the read position (the kernel is `2 * HALF` samples wide).
+const HALF: usize = 32;
+const TAPS: usize = HALF * 2;
+const PHASES: usize = 512;
+
+fn sinc(x: f64) -> f64 {
+    if x.abs() < 1e-9 { 1.0 } else { (std::f64::consts::PI * x).sin() / (std::f64::consts::PI * x) }
 }
 
 impl Resampler {
     pub fn new(host_rate: f32) -> Self {
-        let mut r = Self {
-            frames: Vec::with_capacity(4096),
-            pos: 0.0,
-            step: ENGINE_RATE / host_rate as f64,
-        };
+        let step = ENGINE_RATE / host_rate as f64;
+        // cut at the lower Nyquist frequency, with a little margin for the transition band
+        let cutoff = 0.5 * step.min(1.0) * 0.94;
+        let mut table = vec![0.0f32; PHASES * TAPS];
+        for ph in 0..PHASES {
+            let frac = ph as f64 / PHASES as f64;
+            let mut sum = 0.0;
+            for j in 0..TAPS {
+                let x = j as f64 - (HALF - 1) as f64 - frac;
+                let n = j as f64 / (TAPS - 1) as f64;
+                let window = 0.42 - 0.5 * (2.0 * std::f64::consts::PI * n).cos()
+                    + 0.08 * (4.0 * std::f64::consts::PI * n).cos();
+                let w = 2.0 * cutoff * sinc(2.0 * cutoff * x) * window;
+                table[ph * TAPS + j] = w as f32;
+                sum += w;
+            }
+            if sum.abs() > 1e-9 {
+                for j in 0..TAPS {
+                    table[ph * TAPS + j] /= sum as f32;   // unity gain at DC
+                }
+            }
+        }
+        let mut r = Self { frames: Vec::with_capacity(4096), pos: 0.0, step, table };
         r.reset();
         r
     }
 
     pub fn reset(&mut self) {
         self.frames.clear();
-        // one frame of history in front of the first rendered frame
-        self.frames.push([0.0; 4]);
-        self.pos = 1.0;
+        // HALF frames of history in front of the first rendered frame
+        for _ in 0..HALF {
+            self.frames.push([0.0; 4]);
+        }
+        self.pos = (HALF - 1) as f64;
     }
 
     pub fn next(&mut self, engine: &mut Engine) -> [f32; 4] {
         let i = self.pos as usize;
-        while i + 2 >= self.frames.len() {
+        while i + HALF >= self.frames.len() {
             engine.render(&mut self.frames);
         }
-        let t = (self.pos - i as f64) as f32;
-        let (y0, y1, y2, y3) = (self.frames[i - 1], self.frames[i], self.frames[i + 1], self.frames[i + 2]);
-        let mut out = [0.0; 4];
-        for c in 0..4 {
-            let c1 = 0.5 * (y2[c] - y0[c]);
-            let c2 = y0[c] - 2.5 * y1[c] + 2.0 * y2[c] - 0.5 * y3[c];
-            let c3 = 0.5 * (y3[c] - y0[c]) + 1.5 * (y1[c] - y2[c]);
-            out[c] = ((c3 * t + c2) * t + c1) * t + y1[c];
+        let frac = (self.pos - i as f64) as f32;
+        let ph = ((frac * PHASES as f32) as usize).min(PHASES - 1);
+        let w = &self.table[ph * TAPS..ph * TAPS + TAPS];
+        let mut out = [0.0f32; 4];
+        for j in 0..TAPS {
+            let f = self.frames[i + j + 1 - HALF];
+            for c in 0..4 {
+                out[c] += f[c] * w[j];
+            }
         }
 
         self.pos += self.step;
-        // drop consumed frames, keeping one frame of history
-        let consumed = self.pos as usize - 1;
+        // drop consumed frames, keeping HALF frames of history
+        let consumed = self.pos as usize - (HALF - 1);
         if consumed >= 1024 {
             self.frames.drain(..consumed);
             self.pos -= consumed as f64;
