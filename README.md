@@ -87,27 +87,7 @@ powershell -ExecutionPolicy Bypass -File .\install-vst3.ps1   # UAC, installs in
 * **CONFIG page** (step key 12): the kit's master sample rate — the sample-rate reduction kits like
   LOFIDUST store well below 127. It was the only parameter with no panel control before.
 
----
-
-## 6. Known quirks / open points
-
-1. **Standalone needs a large period.** nih-plug's WASAPI backend asserts when Windows delivers more
-   samples than configured (here: 1056 instead of 512/1024) → the audio thread dies, and since
-   nih-plug applies parameter changes on the audio thread, the whole panel looks dead.
-   → `standalone.cmd` (uses `-p 2048`).
-2. **VST3 only.** CLAP would be a one-liner in `Cargo.toml` (`features = ["vst3", "clap"]` for `nih_plug`).
-3. **Unsigned DLL** — virus scanners/hosts may warn on first load.
-4. **One engine copy per instance** is written to `%TEMP%\ELABS RLX\engine-<pid>-<n>.dll`; leftovers
-   from crashed runs are removed after 24 h.
-5. **Latency:** the sinc resampler adds 32 samples of group delay (~0.7 ms), not reported to the host.
-6. **Absolute paths** in `.cargo/config.toml` (project folder, Zig).
-7. **Kit list** scrolls with its own code — the wheel works over the list, not over the scrollbar.
-8. No git repo history of its own - the project came from a ZIP; it is now a clone of the fork
-   (`studioBischof/ELABS-LXR-02-Windows-VST3-Port`).
-
----
-
-## 7. Picking this up in three steps
+## 6. Picking this up in three steps
 
 1. Read `win/README.md` in the project (build details) — or this text from section 3 on.
 2. Run `cargo test --release`; if the linker is missing, check `.cargo/config.toml`
@@ -121,7 +101,7 @@ powershell -ExecutionPolicy Bypass -File .\install-vst3.ps1   # UAC, installs in
 
 ---
 
-## 8. Debug history (so none of it is searched twice)
+## 7. Debug history (so none of it is searched twice)
 
 | Symptom | Cause / fix |
 |---|---|
