@@ -20,12 +20,8 @@ png = "0.17"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 rfd = { version = "0.15", default-features = false }
 
-# Keyboard input on Windows: baseview never calls SetFocus when the plugin window is clicked, so a
-# parented editor (in a DAW) gets mouse events but no WM_CHAR and text fields stay dead. egui-baseview
-# has an upstream workaround for exactly that (issue #20): it asks baseview for the focus whenever egui
-# reports an IME area, which is what a focused TextEdit does. Same git revision as nih_plug_egui uses,
-# so Cargo unifies it with that one and only the feature is added.
-egui-baseview = { git = "https://github.com/BillyDM/egui-baseview.git", rev = "ec70c3fe6b2f070dcacbc22924431edbe24bd1c0", default-features = false, features = ["windows_keyboard_workaround"] }
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse"] }
 
 [build-dependencies]
 cc = "1"
@@ -46,3 +42,7 @@ required-features = ["preview"]
 # nih_plug_egui with EguiState::set_requested_size() public (size presets); see vendor/README.md
 [patch."https://github.com/robbert-vdh/nih-plug.git"]
 nih_plug_egui = { path = "vendor/nih_plug_egui" }
+# egui-baseview with the keyboard focus taken on every mouse press (see the comment in
+# vendor/egui-baseview/src/window.rs): Bitwig does not hand a parented editor window the keyboard.
+[patch."https://github.com/BillyDM/egui-baseview.git"]
+egui-baseview = { path = "vendor/egui-baseview" }

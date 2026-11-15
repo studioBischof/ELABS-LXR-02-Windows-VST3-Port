@@ -28,11 +28,13 @@ pub(super) struct SaveState {
     text: String,
     /// give the field the keyboard on the next frame
     focus: bool,
+    /// kit image to store instead of the current parameters (the MORPH page's "save what you hear")
+    baked: Option<Vec<u8>>,
 }
 
 impl Default for SaveState {
     fn default() -> Self {
-        Self { what: SaveWhat::Kit, slot: 0, name: [b' '; NAME_LEN], cursor: 0, message: None, text: String::new(), focus: false }
+        Self { what: SaveWhat::Kit, slot: 0, name: [b' '; NAME_LEN], cursor: 0, message: None, text: String::new(), focus: false, baked: None }
     }
 }
 
@@ -57,8 +59,37 @@ pub(super) fn open(st: &mut State) {
     let save = &mut st.save;
     save.slot = slot.min(seq::NUM_PATTERNS - 1);
     save.cursor = 0;
+    save.baked = None;
     set_name(save, if save.what == SaveWhat::Kit { &kit } else { &project });
     save.focus = true;
+}
+
+/// Opens the SAVE page to store a ready kit image (the MORPH page's knob 3): the name is asked for
+/// there and the sound is exactly what was heard with the morph setting.
+pub(super) fn prepare_baked(st: &mut State, data: Vec<u8>) {
+    st.save.what = SaveWhat::Kit;
+    open(st);
+    st.save.baked = Some(data);
+}
+
+/// The sound as it is heard right now, morph included: at morph 0 this kit sounds like the current
+/// morph setting does (the same interpolation the engine applies every block).
+pub(super) fn morphed_kit(params: &LxrParams) -> Vec<u8> {
+    let morph = params.morph.value() as u8;
+    let kit_b = params.morph_kit_data();
+    let mut data = crate::param_table::INIT_KIT.to_vec();
+    data.resize(crate::kit_table::KIT_SIZE, 0);
+    for (info, p) in crate::param_table::PARAMS.iter().zip(&params.sound) {
+        let mut v = p.value();
+        if morph > 0 && crate::morphs(info) {
+            if let Some(b) = &kit_b {
+                let target = crate::kits::kit_value(b, info.index, info.min, info.max, &info.display);
+                v = crate::morph_value(p.value() as u8, target as u8, morph) as i32;
+            }
+        }
+        data[info.index as usize] = v as u8;
+    }
+    data
 }
 
 /// The kit slot the shown pattern uses.
@@ -87,7 +118,10 @@ pub(super) fn name_field(ui: &mut Ui, st: &mut State, rect: Rect) {
     if resp.changed() {
         // a full 8 character name would swallow the next keystroke: keep the last 8 instead, so the
         // name types over itself like on the hardware
-        let mut typed: Vec<char> = text.chars().filter(|c| c.is_ascii() && CHARSET.contains(&(*c as u8))).collect();
+        let mut typed: Vec<char> = text
+            .chars()
+            .filter(|c| c.is_ascii() && CHARSET.contains(&(*c as u8)))
+            .collect();
         if typed.len() > NAME_LEN {
             typed.drain(..typed.len() - NAME_LEN);
         }
@@ -116,7 +150,8 @@ fn current_kit(params: &LxrParams) -> Vec<u8> {
 /// Saves the current sound as kit `name`: into project slot `slot` (the shown pattern now uses it)
 /// and into the library.
 pub(super) fn save_kit(st: &mut State, name: &str, slot: usize) -> std::io::Result<String> {
-    let data = current_kit(&st.params);
+    // a kit prepared on the MORPH page is stored as it is, otherwise the sound as it is set now
+    let data = st.save.baked.take().unwrap_or_else(|| current_kit(&st.params));
     let seq_state = &st.params.seq;
     if let Ok(mut kits) = seq_state.project_kits.lock() {
         kits[slot] = Some((name.to_string(), data.clone()));

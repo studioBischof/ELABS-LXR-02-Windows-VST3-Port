@@ -25,6 +25,7 @@ mod lanes;
 mod save;
 mod sequencer;
 mod song;
+mod keyhook;
 
 /// Panel coordinates are taken from a 520x262 photo of the unit and scaled up.
 const S: f32 = 1.92;
@@ -316,6 +317,7 @@ pub fn create(params: Arc<LxrParams>, shared: Arc<UiShared>) -> Option<Box<dyn E
     // the build step runs each time the window opens, with a new egui context: textures made for
     // an earlier window are gone, so the logo is loaded again here
     create_egui_editor(params.editor_state.clone(), state, |ctx, state| state.logo = load_logo(ctx), |ctx, setter, state| {
+        keyhook::install();
         // the panel is drawn at its base size on a layer scaled to the window (egui-baseview
         // ignores egui's own zoom factor); the layer transform scales the mouse input too
         let zoom = zoom(ctx);
@@ -513,6 +515,20 @@ fn small_button(ui: &mut Ui, rect: Rect, text: &str, enabled: bool) -> Response 
     resp
 }
 
+/// The MORPH page shortcut in the bottom row: while the sequencer runs, the step keys show steps and
+/// the panel's own MORPH key is out of reach.
+fn morph_button(ui: &mut Ui, st: &mut State) {
+    let rect = Rect::from_center_size(p(192.0, 246.0), Vec2::new(32.0 * S, 7.5 * S));
+    let lit = st.page == Page::Morph;
+    let resp = ui.allocate_rect(rect, Sense::click());
+    let painter = ui.painter();
+    painter.rect_filled(rect, 2.0, if lit { LED_RED } else if resp.hovered() { BUTTON } else { BUTTON_DIM });
+    painter.text(rect.center(), Align2::CENTER_CENTER, "MORPH", FontId::proportional(3.8 * S), if lit { PANEL } else { LABEL });
+    if resp.on_hover_text("kit A, kit B and the morph amount").clicked() {
+        st.toggle_page(Page::Morph);
+    }
+}
+
 fn draw_panel(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
     let now = ui.input(|i| i.time);
     let fired = st.shared.fired.swap(0, Ordering::AcqRel);
@@ -613,6 +629,7 @@ fn draw_panel(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
     painter.text(p(250.0, 246.0), Align2::CENTER_CENTER, "GPL-3.0 FIRMWARE BUILD", FontId::proportional(4.5 * S), LABEL_DIM);
 
     voice_clipboard(ui, setter, st);
+    morph_button(ui, st);
 
     history::buttons(
         ui,
@@ -1201,7 +1218,7 @@ fn draw_lcd(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
         painter.text(
             p(125.0, 96.5),
             Align2::CENTER_CENTER,
-            "knob 1: kit A · knob 2: kit B · knob 4 / DATA: morph",
+            "knob 1: kit A · knob 2: kit B · knob 3: save as kit · knob 4 / DATA: morph",
             FontId::proportional(4.6 * S),
             LABEL_DIM,
         );
@@ -1422,8 +1439,15 @@ fn draw_morph_knob(ui: &mut Ui, setter: &ParamSetter, st: &mut State, column: us
             resp.clone().on_hover_text("kit B: the morph target (turn to pick another)");
         }
         2 => {
-            // nothing on this page
+            // store the sound as it is heard now (morph included) as a new kit; the name is asked on
+            // the SAVE page this opens
             knob_face(ui.painter(), center, radius, None, false);
+            if resp.clicked() || drag_steps(resp, &mut st.drag_accum, 20.0) != 0 {
+                let data = save::morphed_kit(&st.params);
+                save::prepare_baked(st, data);
+                st.page = Page::Save;
+            }
+            resp.clone().on_hover_text("save what you hear as a new kit (name on the SAVE page)");
         }
         3 => {
             let params = st.params.clone();

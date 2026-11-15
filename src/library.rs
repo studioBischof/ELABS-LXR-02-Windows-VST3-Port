@@ -327,6 +327,30 @@ fn clean_stem(stem: &str, fallback: &str) -> String {
     if clean.is_empty() { fallback.to_string() } else { clean }
 }
 
+/// Deletes the library file of kit `name` (the top level of `Kits/`, where SAVE writes). Returns
+/// true when a file was removed: the built-in banks have none.
+pub fn delete_kit(name: &str) -> std::io::Result<bool> {
+    let Some(dir) = kits_dir() else { return Ok(false) };
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(e),
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("snd")) {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(&path) else { continue };
+        let Some((file_name, _)) = parse_snd(&bytes) else { continue };
+        if file_name.eq_ignore_ascii_case(name) {
+            std::fs::remove_file(&path)?;
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// A file name that is safe on any disk, without overwriting `existing` files.
 fn free_path(dir: &Path, stem: &str, ext: &str) -> PathBuf {
     let clean = clean_stem(stem, "KIT");

@@ -592,7 +592,7 @@ fn draw_inner(ui: &mut Ui, setter: &ParamSetter, st: &mut State, b: &mut Browser
                 }
             }
             painter.text(right.min + Vec2::new(12.0, 132.0), Align2::LEFT_CENTER, "TAGS", FontId::proportional(12.0), LED_RED);
-            let tag_area = Rect::from_min_max(right.min + Vec2::new(10.0, 144.0), right.max - Vec2::new(10.0, 44.0));
+            let tag_area = Rect::from_min_max(right.min + Vec2::new(10.0, 144.0), right.max - Vec2::new(10.0, 80.0));
             let mut toggle: Option<String> = None;
             ui.scope_builder(egui::UiBuilder::new().max_rect(tag_area).id_salt("tags_area"), |ui| {
                 egui::ScrollArea::vertical().id_salt("tags").show(ui, |ui| {
@@ -605,7 +605,7 @@ fn draw_inner(ui: &mut Ui, setter: &ParamSetter, st: &mut State, b: &mut Browser
                     });
                 });
             });
-            let new_row = Rect::from_min_max(Pos2::new(right.left() + 10.0, right.bottom() - 36.0), right.max - Vec2::new(10.0, 8.0));
+            let new_row = Rect::from_min_max(Pos2::new(right.left() + 10.0, right.bottom() - 70.0), right.max - Vec2::new(10.0, 42.0));
             ui.scope_builder(egui::UiBuilder::new().max_rect(new_row).id_salt("new_tag"), |ui| {
                 ui.horizontal(|ui| {
                     let edit = ui.add(egui::TextEdit::singleline(&mut b.new_tag).hint_text("new tag").desired_width(right.width() - 90.0));
@@ -618,6 +618,40 @@ fn draw_inner(ui: &mut Ui, setter: &ParamSetter, st: &mut State, b: &mut Browser
             });
             if let Some(t) = toggle {
                 b.favorites.toggle_tag(&item.key, &t);
+            }
+
+            // delete the kit from the library (built-in banks have no file to remove)
+            let now = ui.input(|i| i.time);
+            let del = Rect::from_min_max(Pos2::new(right.left() + 10.0, right.bottom() - 36.0), right.max - Vec2::new(10.0, 8.0));
+            let is_kit = matches!(item.target, Target::Kit(_));
+            let resp = button(ui, del, "DELETE KIT", false);
+            let resp = if is_kit {
+                resp.on_hover_text("removes this kit's .SND file from the library")
+            } else {
+                resp.on_hover_text("only kits from the library can be deleted")
+            };
+            if resp.clicked() && is_kit {
+                let text = match crate::library::delete_kit(&item.name) {
+                    Ok(true) => {
+                        st.kits = crate::kits::all_kits();
+                        b.selected = None;
+                        format!("deleted {} from the library", item.name)
+                    }
+                    Ok(false) => format!("{} is a built-in kit - nothing to delete", item.name),
+                    Err(e) => format!("not deleted: {e}"),
+                };
+                b.message = Some((text, now + 6.0));
+            }
+            if let Some((text, until)) = &b.message {
+                if now < *until {
+                    painter.text(
+                        Pos2::new(right.left() + 12.0, right.bottom() - 46.0),
+                        Align2::LEFT_CENTER,
+                        text,
+                        FontId::proportional(11.0),
+                        LCD_ON,
+                    );
+                }
             }
         }
         None if b.saving || b.importing => {}

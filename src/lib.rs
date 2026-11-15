@@ -142,6 +142,11 @@ impl LxrParams {
         self.morph_kit.lock().ok().and_then(|k| k.as_ref().map(|k| k.0.clone()))
     }
 
+    /// The morph target kit's 247 bytes, for the MORPH page's "save what you hear".
+    pub(crate) fn morph_kit_data(&self) -> Option<Vec<u8>> {
+        self.morph_kit.lock().ok().and_then(|k| k.as_ref().map(|k| k.1.clone()))
+    }
+
     /// The plugin parameter for a firmware parameter index, if the plugin exposes it.
     pub fn by_index(&self, index: u16) -> Option<&IntParam> {
         let i = (*self.sound_by_index.get(index as usize)?)?;
