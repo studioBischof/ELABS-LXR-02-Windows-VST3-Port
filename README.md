@@ -86,10 +86,6 @@ powershell -ExecutionPolicy Bypass -File .\install-vst3.ps1   # UAC, installs in
   type (Drum 1/2/3 — CL HH and OP HH are the same hihat voice anyway).
 * **CONFIG page** (step key 12): the kit's master sample rate — the sample-rate reduction kits like
   LOFIDUST store well below 127. It was the only parameter with no panel control before.
-* **Two outputs**: per-voice "St2" on the MIX page plays on Out 2. In Bitwig add the second chain
-  (right-click the device → *Add Missing Chains*) and then **reload the plugin** — a running instance
-  is not told about buses added later and mixes Out 2 into Out 1 instead.
-* **ENTROPIA MOD** deliberately works on one stereo mix: while it is on, every voice plays on Out 1.
 
 ---
 
