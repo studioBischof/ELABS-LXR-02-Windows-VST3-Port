@@ -21,7 +21,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 rfd = { version = "0.15", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading", "Win32_System_LibraryLoader"] }
 
 [build-dependencies]
 cc = "1"
@@ -44,5 +44,11 @@ required-features = ["preview"]
 nih_plug_egui = { path = "vendor/nih_plug_egui" }
 # egui-baseview with the keyboard focus taken on every mouse press (see the comment in
 # vendor/egui-baseview/src/window.rs): Bitwig does not hand a parented editor window the keyboard.
+# baseview with a control character that carries its key (see vendor/baseview/src/win/keyboard.rs):
+# a WM_CHAR 0x08 that arrives without a matching key down became Unidentified, so Backspace from
+# our own keyboard hook did nothing in Ableton
+[patch."https://github.com/RustAudio/baseview"]
+baseview = { path = "vendor/baseview" }
+
 [patch."https://github.com/BillyDM/egui-baseview.git"]
 egui-baseview = { path = "vendor/egui-baseview" }

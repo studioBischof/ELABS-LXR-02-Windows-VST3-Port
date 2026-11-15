@@ -13,6 +13,10 @@ This project ports the macOS ELABS-RLX-02-LXR02-CLONE-VST (Rust + nih-plug + egu
   the morph target kit B, knob 4 (or DATA) is the morph amount. The display shows both kits with the
   amount right-aligned. The morph target and the amount belong to the project, not to the kit, so
   loading another kit A keeps B.
+* **Text input works in every host** — Bitwig, Ableton Live, REAPER and the standalone: typing in the
+  browser search field and the save/rename fields, including uppercase, punctuation and Backspace.
+  Two Windows hooks on the editor thread do this (see section 7); where the host keeps the keyboard
+  (REAPER, Ableton) the characters are handed straight to egui while the pointer is over the panel.
 
 ---
 
@@ -43,7 +47,10 @@ https://www.ericasynths.lv/drum-synthesizer-lxr-02-1132/
 | `src/editor/save.rs` | Name field accepts more than 8 characters (rolls the last 8) instead of silently dropping keystrokes. |
 | `engine/shim/stm32f7xx_hal.h` | `arc4random()` (BSD/macOS) → xorshift under `_WIN32` (noise seeding only). |
 | `engine/lxr_entropia.c` | Comment only: ENTROPIA MOD sums both outputs into Out 1 on purpose, so per-voice outputs do not apply while it is on. |
-| `Cargo.toml` | Extra direct dependency on `egui-baseview` with the **`windows_keyboard_workaround`** feature → keyboard input in text fields. |
+| `Cargo.toml` | Extra direct dependency on `egui-baseview` with the **`windows_keyboard_workaround`** feature → keyboard input in text fields, plus `windows-sys` for the keyboard hooks and two `[patch]` entries pointing `egui-baseview` and `baseview` at `vendor/`. |
+| `vendor/egui-baseview` | Upstream crate with one change: the keyboard focus is taken on **every mouse press** (Bitwig hands a parented editor window no keyboard otherwise). |
+| `vendor/baseview` | Upstream crate with one change in `src/win/keyboard.rs`: a control character (`WM_CHAR` below `0x20`) carries its own key (`VK_BACK`, `VK_RETURN`, `VK_TAB`, `VK_ESCAPE`) when no key down preceded it — otherwise Backspace from the low-level hook was `Key::Unidentified`. |
+| `src/editor/keyhook.rs` | Keyboard for hosts that do not pass keys to the editor: a `WH_GETMESSAGE` hook that asks the layout for missing characters (Bitwig), and a `WH_KEYBOARD_LL` hook that hands characters straight to egui while a text field is focused and the pointer is over the panel (REAPER, Ableton). |
 | `.cargo/config.toml` | Target/linker/env for the Windows build. |
 | `win/*` | Toolchain wrappers, import library, `README.md` (build documentation). |
 | `install-vst3.ps1` | Copies the bundle to `C:\Program Files\Common Files\VST3` (asks for admin). |
@@ -114,7 +121,12 @@ powershell -ExecutionPolicy Bypass -File .\install-vst3.ps1   # UAC, installs in
 | `call to undeclared function 'arc4random'` | macOS API in the firmware shim → xorshift under `_WIN32`. |
 | `cc-rs: failed to find tool "ar"` / `dlltool` | provide wrappers as `ar.exe`/`dlltool.exe` and put `win/` on `PATH`. |
 | standalone panel does not react | WASAPI panic (1056 > 512) → `-p 2048`. |
-| text fields take no keystrokes | baseview never calls `SetFocus` for a parented window on Windows → egui-baseview's `windows_keyboard_workaround`. |
+| text fields take no keystrokes | baseview never calls `SetFocus` for a parented window on Windows → egui-baseview's `windows_keyboard_workaround`, and a `window.focus()` on every mouse press (Bitwig). |
+| no `WM_CHAR` for Shift and punctuation in Bitwig | `TranslateMessage` does not translate them for a child window inside a DAW → `WH_GETMESSAGE` hook translates the key itself and posts the character. |
+| no typing at all in REAPER and Ableton | the hosts keep the keyboard on their own window and the editor is never focused → `WH_KEYBOARD_LL` hook takes the keys while a text field is focused and the pointer is over the panel. |
+| letters reached the editor window in REAPER but never appeared | a posted `WM_CHAR` does not survive baseview: it only builds a `Key` event when the matching `WM_KEYDOWN` went through the same window → hand the text to egui directly (`keyhook::take_typed`, drained at the start of the frame) instead of posting messages. |
+| Backspace did nothing in Ableton | a `WM_CHAR` `0x08` without a key down became `Key::Unidentified` → patched `vendor/baseview` (control character carries its key). |
+| Enter stopped working everywhere while the plugin was open | the low-level hook swallowed the release of *every* key while a text field had the focus → it now only swallows the release of a key it actually took. |
 | list jumps when a kit is picked | unstable egui ids plus `ScrollArea` bookkeeping → stable ids, then own scrolling. |
 | panel cropped in the standalone, clicks miss | `zoom` used the requested size instead of the real window size. |
 | "no home folder" when importing | Windows has no `HOME` → `USERPROFILE`. |

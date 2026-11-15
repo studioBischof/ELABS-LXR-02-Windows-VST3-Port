@@ -318,6 +318,15 @@ pub fn create(params: Arc<LxrParams>, shared: Arc<UiShared>) -> Option<Box<dyn E
     // an earlier window are gone, so the logo is loaded again here
     create_egui_editor(params.editor_state.clone(), state, |ctx, state| state.logo = load_logo(ctx), |ctx, setter, state| {
         keyhook::install();
+        // text the hooks typed while the host kept the keyboard (REAPER): egui never sees those
+        // keys at all, so they are handed to it here, before any widget is drawn
+        {
+            let typed = keyhook::take_typed();
+            if !typed.is_empty() {
+                ctx.input_mut(|i| i.events.extend(typed));
+            }
+        }
+        keyhook::set_want_keys(ctx.wants_keyboard_input());
         // the panel is drawn at its base size on a layer scaled to the window (egui-baseview
         // ignores egui's own zoom factor); the layer transform scales the mouse input too
         let zoom = zoom(ctx);
