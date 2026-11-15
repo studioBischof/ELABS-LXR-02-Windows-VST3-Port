@@ -33,13 +33,16 @@ https://www.ericasynths.lv/drum-synthesizer-lxr-02-1132/
 | File | Change |
 |---|---|
 | `build.rs` | Builds the firmware as **`lxr_engine.dll`** instead of `.dylib` (the macOS branch is untouched); C compiler taken from `CC`/`CC_x86_64_pc_windows_gnu`. |
-| `src/engine.rs` | Embeds `lxr_engine.dll` and writes a `.dll` copy per instance. **New resampler** from 44.140 kHz to the host rate (64-tap Blackman windowed sinc, 512 phases) instead of cubic interpolation. |
+| `src/engine.rs` | Embeds `lxr_engine.dll` and writes a `.dll` copy per instance. **New resampler** from 44.140 kHz to the host rate (64-tap Blackman windowed sinc, 512 phases) instead of cubic interpolation. Plus a test that a voice set to St2 plays on output 2 and stays off output 1. |
 | `src/library.rs` | Library folder from `HOME` **or** `USERPROFILE` (Windows has no `HOME`); `ensure_root()` creates `Kits/Projects/Imported`. |
-| `src/lib.rs` | Calls `ensure_root()` during initialisation. |
-| `src/editor.rs` | `zoom()` now uses the **actual** window size (`ctx.screen_rect()`) instead of the requested one — otherwise the standalone crops the panel and clicks land in the wrong place. |
+| `src/lib.rs` | Calls `ensure_root()` during initialisation. The second output is decided per block from the buffer the host actually passes (a flag taken at initialisation stayed false when the host created the aux bus after loading), and the voice clipboard lives here. |
+| `src/editor.rs` | `zoom()` now uses the **actual** window size (`ctx.screen_rect()`) instead of the requested one - otherwise the standalone crops the panel and clicks land in the wrong place. Also the CONFIG and MORPH pages and the voice COPY/PASTE buttons (section 1). |
+| `src/ui_pages.rs` | The CONFIG page (master sample rate) and the MORPH page's slots. |
+| `src/editor/history.rs` | `say()` for the panel's message line, and `commit` public so a paste is its own undo step. |
 | `src/editor/browser.rs` | Stable widget ids; **own list scrolling** instead of `ScrollArea` (offset kept in `BrowserState`, own scrollbar); name field no longer swallowed by the 8-character limit; "SHOW THE LIBRARY FOLDER" uses `explorer`; import/save/tag areas got their own ids. |
 | `src/editor/save.rs` | Name field accepts more than 8 characters (rolls the last 8) instead of silently dropping keystrokes. |
 | `engine/shim/stm32f7xx_hal.h` | `arc4random()` (BSD/macOS) → xorshift under `_WIN32` (noise seeding only). |
+| `engine/lxr_entropia.c` | Comment only: ENTROPIA MOD sums both outputs into Out 1 on purpose, so per-voice outputs do not apply while it is on. |
 | `Cargo.toml` | Extra direct dependency on `egui-baseview` with the **`windows_keyboard_workaround`** feature → keyboard input in text fields. |
 | `.cargo/config.toml` | Target/linker/env for the Windows build. |
 | `win/*` | Toolchain wrappers, import library, `README.md` (build documentation). |
