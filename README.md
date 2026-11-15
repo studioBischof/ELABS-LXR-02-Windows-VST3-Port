@@ -1,6 +1,6 @@
-# ELABS RLX – Windows x86 VST3 port
+# A Windows x86 VST3 Port of the ELABS LXR-02 Clone
 
-The macOS project **ELABS RLX** (`ELABS-RLX-02-LXR02-CLONE-VST`, Rust + nih-plug + egui) was to run on Windows 11. 
+This project ports the macOS **ELABS RLX** (`ELABS-RLX-02-LXR02-CLONE-VST`, Rust + nih-plug + egui) to run on Windows 11 x86 as a VST3. 
 
 ## 1. Download the factory LXR presets
 
