@@ -84,8 +84,12 @@ powershell -ExecutionPolicy Bypass -File .\install-vst3.ps1   # UAC, installs in
 * **Voice COPY / PASTE** (bottom row, next to the size presets): copies all 37 parameters of the
   selected voice plus its fader, survives loading another kit, and pastes between voices of the same
   type (Drum 1/2/3 — CL HH and OP HH are the same hihat voice anyway).
-* **CONFIG page** (step key 12): the kit's master sample rate — the sample-rate reduction kits like
+* **CONFIG page** (step key 12): the kit's master sample rate - the sample-rate reduction kits like
   LOFIDUST store well below 127. It was the only parameter with no panel control before.
+* **MORPH page** (step key 9, "MORPH"): knob 1 picks kit A (and loads it while turning), knob 2 picks
+  the morph target kit B, knob 4 (or DATA) is the morph amount. The display shows both kits with the
+  amount right-aligned. The morph target and the amount belong to the project, not to the kit, so
+  loading another kit A keeps B.
 
 ## 6. Picking this up in three steps
 

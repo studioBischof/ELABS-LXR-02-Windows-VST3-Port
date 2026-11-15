@@ -88,8 +88,8 @@ pub static VOICE_PAGES: [[SubPage; 8]; 7] = [
 
 /// One sub page per FX type (off, drive, ring mod, compressor, delay, reverb)
 /// CONFIG page: the kit's global settings the panel has room for. On the unit these sit behind the
-/// CONFIG key; the one the plugin needs is the master sample rate (the LXR's sample-rate reduction),
-/// which kits like LOFIDUST store well below 127.
+/// CONFIG key; here it is the master sample rate (the LXR's sample-rate reduction, which kits like
+/// LOFIDUST store well below 127).
 pub static CONFIG_PAGE: SubPage = [
     Some(Slot { param: 114, short: "srt", category: "Master", long: "SampleRt" }),
     None, None, None, None, None, None, None,

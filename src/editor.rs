@@ -66,11 +66,12 @@ const STEP_LABELS: [&str; 16] = [
 ];
 const STEP_HELP: [&str; 16] = [
     "play DRUM1", "play DRUM2", "play DRUM3", "play SNARE", "play CLP/CYM", "play CL HH", "play OP HH",
-    "KIT: kit browser on the display", "MORPH: not in this plugin (morph is on the LOAD page)", "SONG: song mode",
+    "KIT: kit browser on the display", "MORPH: kit A, kit B and the morph amount", "SONG: song mode",
     "PROJECT: use PATTERN or the BROWSER", "CONFIG: master sample rate (the kit's sample-rate reduction)", "RELOAD: not in this plugin",
     "LAST STEP: track length is \"len\" on the MIX page", "FX: master effect page", "PATTERN: pattern and project browser",
 ];
 const STEP_KIT: usize = 7;
+const STEP_MORPH: usize = 8;
 const STEP_SONG: usize = 9;
 const STEP_CONFIG: usize = 11;
 // firmware parameter numbers of the modulation destination settings
@@ -107,6 +108,8 @@ enum Page {
     Pattern,
     /// euclid generator and shuffle (PERF)
     Perf,
+    /// kit A, kit B and the morph amount (MORPH)
+    Morph,
     /// global settings the panel can set (CONFIG): the kit's sample-rate reduction
     Config,
     /// save a kit or the session as a project (SAVE)
@@ -156,6 +159,8 @@ struct State {
     save: save::SaveState,
     /// the kit browser loads into the morph slot (kit B) instead of the kit
     load_to_morph: bool,
+    /// MORPH page: kit index picked as the morph target (kit B)
+    morph_b: usize,
     /// step being edited (0-63 in the shown pattern, on the current track), its view and column
     sel_step: Option<usize>,
     step_view: usize,
@@ -193,7 +198,7 @@ impl State {
                 &FX_PAGES[fx.min(FX_PAGES.len() - 1)]
             }
             Page::Config => &CONFIG_PAGE,
-            Page::Load | Page::Pattern | Page::Perf | Page::Save | Page::Step | Page::Copy | Page::Song => &NO_PARAMS,
+            Page::Load | Page::Pattern | Page::Perf | Page::Save | Page::Step | Page::Copy | Page::Song | Page::Morph => &NO_PARAMS,
         }
     }
 
@@ -281,6 +286,7 @@ pub fn create(params: Arc<LxrParams>, shared: Arc<UiShared>) -> Option<Box<dyn E
         perf_col: 0,
         save: save::SaveState::default(),
         load_to_morph: false,
+        morph_b: 0,
         sel_step: None,
         step_view: 0,
         step_col: 0,
@@ -830,6 +836,7 @@ fn draw_panel(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
         let (lit, enabled) = match i {
             0..=6 => (now < st.led_until[i], true),
             STEP_KIT => (st.page == Page::Load, true),
+            STEP_MORPH => (st.page == Page::Morph, true),
             STEP_CONFIG => (st.page == Page::Config, true),
             STEP_FX => (st.page == Page::Fx, true),
             sequencer::STEP_PATTERN => (st.page == Page::Pattern, true),
@@ -844,6 +851,18 @@ fn draw_panel(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
         }
         if i == STEP_KIT && resp.clicked() {
             st.toggle_load_page();
+        }
+        if i == STEP_MORPH && resp.clicked() {
+            let entering = st.page != Page::Morph;
+            st.toggle_page(Page::Morph);
+            if entering {
+                // start on the kit that is loaded as B now, if any
+                st.morph_b = st
+                    .params
+                    .morph_kit_name()
+                    .and_then(|n| st.kits.iter().position(|k| k.name == n))
+                    .unwrap_or(st.morph_b.min(st.kits.len().saturating_sub(1)));
+            }
         }
         if i == sequencer::STEP_PATTERN && resp.clicked() {
             st.toggle_page(Page::Pattern);
@@ -1056,6 +1075,17 @@ fn draw_lcd(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
         };
         rows[1] = format!("{name:<8}{status:>8}");
     }
+    if st.page == Page::Morph {
+        // kit A over kit B on the left, the word and the amount right-aligned at the edge
+        let a: String = st.kits.get(st.kit_index).map(|k| k.name.chars().take(9).collect()).unwrap_or_default();
+        let b: String = st
+            .params
+            .morph_kit_name()
+            .map(|n| n.chars().take(9).collect())
+            .unwrap_or_else(|| "-".to_string());
+        rows[0] = format!("A {a:<9}{:>5}", "morph");
+        rows[1] = format!("B {b:<9}{:>5}", st.params.morph.value());
+    }
     for column in (0..4).filter(|_| matches!(st.page, Page::Voice(_) | Page::Fx | Page::Config)) {
         let (name, value) = match st.slot(column) {
             Some(slot) => {
@@ -1163,6 +1193,15 @@ fn draw_lcd(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
                 st.params.morph.value(),
                 st.params.morph_kit_name().unwrap_or_else(|| "no kit B".to_string())
             ),
+            FontId::proportional(4.6 * S),
+            LABEL_DIM,
+        );
+    }
+    if st.page == Page::Morph {
+        painter.text(
+            p(125.0, 96.5),
+            Align2::CENTER_CENTER,
+            "knob 1: kit A · knob 2: kit B · knob 4 / DATA: morph",
             FontId::proportional(4.6 * S),
             LABEL_DIM,
         );
@@ -1355,12 +1394,60 @@ fn draw_load_knob(ui: &mut Ui, setter: &ParamSetter, st: &mut State, column: usi
     }
 }
 
-fn draw_knob(ui: &mut Ui, setter: &ParamSetter, st: &mut State, column: usize) {
-    let center = p(KNOB_X[column], 127.0);
+/// MORPH page: knob 1 picks the loaded kit A (and loads it while turning), knob 2 the morph target
+/// kit B, knob 3 the morph amount. Knob 4 stays free.
+fn draw_morph_knob(ui: &mut Ui, setter: &ParamSetter, st: &mut State, column: usize, center: Pos2, radius: f32, resp: &Response) {
+    let n = st.kits.len().max(1);
+    match column {
+        0 => {
+            knob_face(ui.painter(), center, radius, Some(st.kit_index as f32 / (n.max(2) - 1) as f32), false);
+            let steps = drag_steps(resp, &mut st.drag_accum, 12.0) + scroll_steps(ui, resp, &mut st.scroll_accum);
+            if steps != 0 {
+                st.kit_index = (st.kit_index as i32 + steps).clamp(0, n as i32 - 1) as usize;
+                st.load_to_morph = false;
+                st.load_selected(setter);
+            }
+            resp.clone().on_hover_text("kit A: the kit that is loaded (turn to audition another)");
+        }
+        1 => {
+            let b = st.morph_b.min(n - 1);
+            knob_face(ui.painter(), center, radius, Some(b as f32 / (n.max(2) - 1) as f32), false);
+            let steps = drag_steps(resp, &mut st.drag_accum, 12.0) + scroll_steps(ui, resp, &mut st.scroll_accum);
+            if steps != 0 {
+                st.morph_b = (st.morph_b as i32 + steps).clamp(0, n as i32 - 1) as usize;
+                if let Some(kit) = st.kits.get(st.morph_b) {
+                    st.params.set_morph_kit(Some((kit.name.clone(), kit.data.clone())));
+                }
+            }
+            resp.clone().on_hover_text("kit B: the morph target (turn to pick another)");
+        }
+        2 => {
+            // nothing on this page
+            knob_face(ui.painter(), center, radius, None, false);
+        }
+        3 => {
+            let params = st.params.clone();
+            knob_face(ui.painter(), center, radius, Some(params.morph.unmodulated_normalized_value()), false);
+            if turning(ui, resp) {
+                st.popup = Some((center - Vec2::new(0.0, radius + 6.0), format!("Morph: {}", params.morph)));
+            }
+            edit_param_drag(ui, resp, setter, &params.morph, None, &mut st.drag_accum, &mut st.scroll_accum, 1.0);
+        }
+        _ => {
+            knob_face(ui.painter(), center, radius, None, false);
+        }
+    }
+}
+
+fn draw_knob(ui: &mut Ui, setter: &ParamSetter, st: &mut State, column: usize) {    let center = p(KNOB_X[column], 127.0);
     let radius = 13.0 * S;
     let resp = ui.allocate_rect(Rect::from_center_size(center, Vec2::splat(radius * 2.0)), Sense::click_and_drag());
     if st.page == Page::Load {
         draw_load_knob(ui, setter, st, column, center, radius, &resp);
+        return;
+    }
+    if st.page == Page::Morph {
+        draw_morph_knob(ui, setter, st, column, center, radius, &resp);
         return;
     }
     if st.page == Page::Pattern {
@@ -1456,10 +1543,19 @@ fn draw_encoder(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
         Page::Song => return song::song_encoder(ui, st, center, radius, &resp),
         _ => {}
     }
+    if st.page == Page::Morph {
+        // DATA edits the morph amount, the value the page is about
+        let params = st.params.clone();
+        knob_face(&painter, center, radius, Some(params.morph.unmodulated_normalized_value()), true);
+        if turning(ui, &resp) {
+            st.popup = Some((center - Vec2::new(0.0, radius + 6.0), format!("Morph: {}", params.morph)));
+        }
+        edit_param_drag(ui, &resp, setter, &params.morph, None, &mut st.drag_accum, &mut st.scroll_accum, 1.0);
+        return;
+    }
     if st.page == Page::Load {
         // DATA scrolls through all kits; a click loads the selected one
-        let n = st.kits.len().max(1);
-        knob_face(&painter, center, radius, Some(st.kit_index as f32 / (n.max(2) - 1) as f32), true);
+        let n = st.kits.len().max(1);        knob_face(&painter, center, radius, Some(st.kit_index as f32 / (n.max(2) - 1) as f32), true);
         let scroll = scroll_steps(ui, &resp, &mut st.scroll_accum);
         let steps = drag_steps(&resp, &mut st.drag_accum, 8.0) + scroll;
         st.kit_index = (st.kit_index as i32 + steps).clamp(0, n as i32 - 1) as usize;
