@@ -106,8 +106,8 @@ powershell -ExecutionPolicy Bypass -File .\install-vst3.ps1   # UAC, installs in
 5. **Latency:** the sinc resampler adds 32 samples of group delay (~0.7 ms), not reported to the host.
 6. **Absolute paths** in `.cargo/config.toml` (project folder, Zig).
 7. **Kit list** scrolls with its own code — the wheel works over the list, not over the scrollbar.
-8. No git repo history of its own — the project came from a ZIP; it is now a clone of the fork
-   (`studioBischof/ELABS-RLX-02-LXR02-CLONE-VST`).
+8. No git repo history of its own - the project came from a ZIP; it is now a clone of the fork
+   (`studioBischof/ELABS-LXR-02-Windows-VST3-Port`).
 
 ---
 
