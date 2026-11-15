@@ -79,6 +79,18 @@ powershell -ExecutionPolicy Bypass -File .\install-vst3.ps1   # UAC, installs in
 * Loading kits, star ratings, sequencer follows the host transport
 * 48 kHz (and any other host rate) at the correct pitch — the engine runs at 44.140 Hz internally
 
+### Panel additions in this fork
+
+* **Voice COPY / PASTE** (bottom row, next to the size presets): copies all 37 parameters of the
+  selected voice plus its fader, survives loading another kit, and pastes between voices of the same
+  type (Drum 1/2/3 — CL HH and OP HH are the same hihat voice anyway).
+* **CONFIG page** (step key 12): the kit's master sample rate — the sample-rate reduction kits like
+  LOFIDUST store well below 127. It was the only parameter with no panel control before.
+* **Two outputs**: per-voice "St2" on the MIX page plays on Out 2. In Bitwig add the second chain
+  (right-click the device → *Add Missing Chains*) and then **reload the plugin** — a running instance
+  is not told about buses added later and mixes Out 2 into Out 1 instead.
+* **ENTROPIA MOD** deliberately works on one stereo mix: while it is on, every voice plays on Out 1.
+
 ---
 
 ## 6. Known quirks / open points
@@ -193,36 +205,6 @@ tools/make_installer.sh        # dist/ELABS RLX <version>.pkg
 
 The package is unsigned unless `SIGN_ID` names a Developer ID Installer certificate; unsigned, macOS
 asks to confirm it on first open (right click > Open).
-
-### Windows (this fork)
-
-This fork also builds as a native Windows VST3 (x64) — without Visual Studio and without CMake: Rust's
-`x86_64-pc-windows-gnu` target plus Zig as the C compiler, archiver and linker (set up in
-`.cargo/config.toml`).
-
-```powershell
-cargo xtask bundle elabs_lxr --release
-powershell -ExecutionPolicy Bypass -File .\install-vst3.ps1   # asks for admin
-```
-
-The script copies the bundle to `C:\Program Files\Common Files\VST3`. Toolchain, wrappers and every
-change the port needed: [win/README.md](win/README.md).
-
-Windows notes:
-
-- **Two outputs.** The plugin declares Out 1 and Out 2 (per voice "St2" on the MIX page). In Bitwig
-  add the second chain (right-click the device → *Add Missing Chains*) and then **reload the plugin**:
-  a running instance is not told about buses that appear later and mixes Out 2 into Out 1 instead.
-- **Text fields** (kit name, search, tags) rely on egui-baseview's `windows_keyboard_workaround` —
-  baseview never takes the keyboard focus for a window parented into a DAW.
-- **Sample-rate reduction.** Kits such as LOFIDUST store the master sample rate well below 127; it is
-  on the **CONFIG** page (step key 12).
-- **Voice COPY / PASTE** (bottom row) keeps all 37 parameters of a voice plus its fader, survives
-  loading another kit, and pastes between voices of the same type (Drum 1/2/3).
-- **ENTROPIA MOD** works on one stereo mix by design: while it is on, every voice plays on Out 1.
-- The **standalone preview** needs `lxr_preview.exe -p 2048` on Windows (or `standalone.cmd`):
-  nih-plug's WASAPI backend aborts when Windows delivers more samples than the configured period, and
-  with the audio thread gone the panel looks dead.
 
 ## MIDI
 
