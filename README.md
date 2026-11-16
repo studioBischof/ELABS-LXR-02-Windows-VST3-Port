@@ -2,6 +2,8 @@
 
 This project ports the macOS ELABS-RLX-02-LXR02-CLONE-VST (Rust + nih-plug + egui) to run on Windows 11 as a VST3. Some minor features were also added.
 
+<img width="987" height="500" alt="LXR02-Clone" src="https://github.com/user-attachments/assets/80308134-b537-4367-9395-dcd303d05e8f" />
+
 ## 1. Panel additions in this fork
 
 * **Voice COPY / PASTE** (bottom row, next to the size presets): copies all 37 parameters of the
