@@ -159,8 +159,6 @@ powershell -ExecutionPolicy Bypass -File .\install-vst3.ps1   # UAC, installs in
 It isn't an emulation: it's the open-source LXR V2 firmware's own C sound engine and sequencer, compiled for the Mac and
 wrapped in a panel laid out like the hardware. Made by EntropiaLabs.
 
-![ELABS RLX panel](docs/panel.jpg)
-
 - six synthesized drum voices (three drums, snare, clap/cymbal, hi-hats) with FM, transient clicks,
   filters, LFOs, velocity modulation and kit morphing
 - the hardware's step sequencer synced to the DAW: 64 patterns of 7 tracks, parameter locks,
