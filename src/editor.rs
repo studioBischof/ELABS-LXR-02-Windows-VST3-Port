@@ -619,6 +619,24 @@ fn draw_panel(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
     }
     painter.text(p(110.0, 40.5), Align2::CENTER_CENTER, "DIGITAL DRUM SYNTH", FontId::proportional(5.2 * S), Color32::WHITE);
 
+    // what is loaded and playing, one status line at the top centre, in the lettering of the caption
+    // under the display: the loaded kit, the playing pattern and - when it differs - the kit that
+    // pattern was made with
+    {
+        let kit = st.params.kit_name.lock().map(|n| n.clone()).unwrap_or_default();
+        let kit = if kit.trim().is_empty() { "INIT".to_string() } else { kit };
+        let active = st.params.seq.active.load(Ordering::Acquire) as usize % crate::seq::NUM_PATTERNS;
+        let kit_nr = st.params.seq.patterns.lock().ok().and_then(|p| p.get(active).map(|pat| crate::seq::kit_number(pat)));
+        let pattern_kit = kit_nr
+            .and_then(|nr| st.params.seq.project_kits.lock().ok().and_then(|k| k.get(nr).cloned().flatten()))
+            .map(|(name, _)| name);
+        let mut status = format!("KIT {kit} · P{:02}", active + 1);
+        if let Some(name) = pattern_kit.filter(|n| *n != kit) {
+            status.push_str(&format!(" {name}"));
+        }
+        painter.text(p(252.0, 18.0), Align2::CENTER_CENTER, status, FontId::proportional(4.2 * S), LABEL_DIM);
+    }
+
     // opens the ALL PARAMS view on the selected voice
     let all = Rect::from_center_size(p(188.0, 20.0), Vec2::new(30.0 * S, 9.0 * S));
     let resp = ui.allocate_rect(all, Sense::click()).on_hover_text("every parameter of a voice on one page\n(with Live's Configure on, touched controls can be MIDI mapped)");

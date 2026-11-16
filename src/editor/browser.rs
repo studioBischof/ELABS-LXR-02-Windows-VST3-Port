@@ -508,6 +508,8 @@ fn draw_inner(ui: &mut Ui, setter: &ParamSetter, st: &mut State, b: &mut Browser
     let list = Rect::from_min_max(Pos2::new(208.0, 52.0), Pos2::new(690.0, h - 16.0));
     painter.rect_filled(list, 4.0, Color32::from_rgb(16, 16, 18));
     let current_kit = st.params.kit_name.lock().map(|n| n.clone()).unwrap_or_default();
+    let current_project = st.params.seq.project_name();
+    let active_pattern = st.params.seq.active.load(Ordering::Acquire) as usize % crate::seq::NUM_PATTERNS;
     let mut to_load: Option<usize> = None;
     let mut rate: Option<(String, u8)> = None;
     {
@@ -543,7 +545,14 @@ fn draw_inner(ui: &mut Ui, setter: &ParamSetter, st: &mut State, b: &mut Browser
             // a stable id per item, so nothing that depends on the widget order can move with the list
             let resp = ui.interact(rect, ui.id().with(("kit-row", item.key.as_str())), Sense::CLICK);
             let selected = b.selected.as_deref() == Some(item.key.as_str());
-            let loaded = matches!(item.target, Target::Kit(_)) && item.name == current_kit;
+            // the kit that is loaded / the pattern that is playing, in the LCD's red
+            let loaded = match item.target {
+                Target::Kit(_) => item.name == current_kit,
+                Target::Pattern { project, nr } => {
+                    nr == active_pattern
+                        && st.projects.get(project).map(|p| p.name.as_str()) == current_project.as_deref()
+                }
+            };
             let fill = if selected {
                 Color32::from_rgb(70, 22, 28)
             } else if resp.hovered() {
