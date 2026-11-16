@@ -316,6 +316,7 @@ fn collect_projects(dir: &Path, out: &mut Vec<Project>, imports: &mut Vec<Option
         }
     }
     if found {
+        project.dir = Some(dir.to_path_buf());
         out.push(project);
         imports.push(imported_as(dir));
     }
@@ -344,6 +345,18 @@ pub fn delete_kit(name: &str) -> std::io::Result<bool> {
         let Ok(bytes) = std::fs::read(&path) else { continue };
         let Some((file_name, _)) = parse_snd(&bytes) else { continue };
         if file_name.eq_ignore_ascii_case(name) {
+            std::fs::remove_file(&path)?;
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Deletes pattern `nr` of project folder `dir`, where a file named `NN-something.PAT` holds it.
+/// Returns true when a file was removed: the built-in projects have none.
+pub fn delete_pattern(dir: &Path, nr: usize) -> std::io::Result<bool> {
+    for path in sorted_entries(dir) {
+        if has_ext(&path, "pat") && slot(&path) == Some(nr) {
             std::fs::remove_file(&path)?;
             return Ok(true);
         }
@@ -464,6 +477,11 @@ mod tests {
         assert_eq!(save_pattern("Grooves", &patterns[3], &("Snappy".to_string(), kit.clone())).unwrap().1, 1);
         assert!(pdir.join("01-.PAT").exists() && pdir.join("01-SNAPP.SND").exists());
         assert!(!dir.join("00-.PAT").exists(), "empty patterns aren't written");
+        // deleting a pattern removes its .PAT file and leaves the kit file next to it
+        assert!(delete_pattern(&pdir, 0).unwrap());
+        assert!(!pdir.join("00-.PAT").exists());
+        assert!(pdir.join("00-SNAPP.SND").exists(), "only the pattern goes");
+        assert!(!delete_pattern(&pdir, 0).unwrap(), "nothing left to delete");
 
         // importing a download: its folders (and so its projects) are kept, other files skipped
         let download = home.join("LXR download");

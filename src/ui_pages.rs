@@ -92,7 +92,9 @@ pub static VOICE_PAGES: [[SubPage; 8]; 7] = [
 /// LOFIDUST store well below 127).
 pub static CONFIG_PAGE: SubPage = [
     Some(Slot { param: 114, short: "srt", category: "Master", long: "SampleRt" }),
-    None, None, None, None, None, None, None,
+    Some(Slot { param: crate::PARAM_MASTER_TUNE, short: "tun", category: "Master", long: "MasterTune" }),
+    Some(Slot { param: crate::PARAM_MORPH, short: "mor", category: "Master", long: "Morph" }),
+    None, None, None, None, None,
 ];
 
 pub static FX_PAGES: [SubPage; 6] = [

@@ -7,16 +7,42 @@ This project ports the macOS ELABS-RLX-02-LXR02-CLONE-VST (Rust + nih-plug + egu
 * **Voice COPY / PASTE** (bottom row, next to the size presets): copies all 37 parameters of the
   selected voice plus its fader, survives loading another kit, and pastes between voices of the same
   type (Drum 1/2/3 — CL HH and OP HH are the same hihat voice anyway).
-* **CONFIG page** (step key 12): the kit's master sample rate - the sample-rate reduction kits like
-  LOFIDUST store well below 127. It was the only parameter with no panel control before.
+* **CONFIG page** (step key 12, and a CONFIG button in the bottom row): the kit's master sample rate -
+  the sample-rate reduction kits like LOFIDUST store well below 127, the only parameter with no panel
+  control before - plus **Master Tune** (−24…+24 semitones for the whole kit) and the **morph amount**,
+  so the three master settings can be performed from one page.
 * **MORPH page** (step key 9, "MORPH"): knob 1 picks kit A (and loads it while turning), knob 2 picks
   the morph target kit B, knob 4 (or DATA) is the morph amount. The display shows both kits with the
   amount right-aligned. The morph target and the amount belong to the project, not to the kit, so
   loading another kit A keeps B. Knob 3 saves what is heard (morph included) as a new kit: it opens
   the SAVE page for the name, then loads the new kit, puts the morph back to 0 (the baked values
   already contain it) and returns to the kit A / kit B display.
-* **Delete Preset** in the right detail view of the browser.
-  
+* **Delete Preset** in the right detail view of the browser — DELETE KIT on the KITS tab, DELETE
+  PATTERN on the PATTERNS tab: the first click turns the button into "REALLY DELETE?", the second
+  removes the file (kit `.SND` or pattern `.PAT`). Built-in banks and projects have no file, so they
+  are left alone.
+* **Text input works in every host** — Bitwig, Ableton Live, REAPER and the standalone: typing in the
+  browser search field and the save/rename fields, including uppercase, punctuation and Backspace.
+  Two Windows hooks on the editor thread do this (see section 7); where the host keeps the keyboard
+  (REAPER, Ableton) the characters are handed straight to egui while the pointer is over the panel.
+* **Kit names keep their first eight characters** — the .SND name is 8 bytes and a space counts as
+  one; the field used to keep the *last* eight, so a name with a space looked like only the part behind
+  the space had been stored.
+* **Lock Kit when loading a pattern** — on the PATTERNS tab a switch at the left, above the project
+  list: while it is on, clicking a pattern loads only its steps and the sound stays as it is. It is the
+  same switch as knob 3 on the PATTERN page ("kit follows: off"), so both stay in step.
+* **Note Lock** — the switch under it, on the KITS *and* the PATTERNS tab (on by default): while it is
+  on, every step plays at the pitch set in the kit and the note stored in the pattern is ignored. The
+  factory SD content carries note 63 in every step (+3 semitones; 60 is the LXR's reference — the kit's
+  own pitch), patterns made here use 60, so switching between both used to move every voice by three
+  semitones. The pattern data itself is not changed: the STEP page still shows the note that is stored.
+* **Master Tune** (CONFIG page, knob 2): tunes the whole kit up or down in semitones (−24…+24). It moves
+  what is played — the sequencer's steps, the panel keys and MIDI notes — and belongs to the project,
+  not to the kit, so loading another kit keeps it.
+* **SAVE page closes itself** — once the name is confirmed (Enter or the DATA encoder) the panel goes
+  back to the page SAVE was opened from and shows "saved …" at the bottom for a moment. From the MORPH
+  page it goes back to kit A / kit B instead. A failed save stays put with the error text.
+
 ---
 
 ## 2. Download the factory LXR presets
@@ -40,10 +66,11 @@ https://www.ericasynths.lv/drum-synthesizer-lxr-02-1132/
 | `src/library.rs` | Library folder from `HOME` **or** `USERPROFILE` (Windows has no `HOME`); `ensure_root()` creates `Kits/Projects/Imported`. |
 | `src/lib.rs` | Calls `ensure_root()` during initialisation. The second output is decided per block from the buffer the host actually passes (a flag taken at initialisation stayed false when the host created the aux bus after loading), and the voice clipboard lives here. |
 | `src/editor.rs` | `zoom()` now uses the **actual** window size (`ctx.screen_rect()`) instead of the requested one - otherwise the standalone crops the panel and clicks land in the wrong place. Also the CONFIG and MORPH pages and the voice COPY/PASTE buttons (section 1). |
-| `src/ui_pages.rs` | The CONFIG page (master sample rate) and the MORPH page's slots. |
+| `src/ui_pages.rs` | The CONFIG page (master sample rate and master tune) and the MORPH page's slots. |
 | `src/editor/history.rs` | `say()` for the panel's message line, and `commit` public so a paste is its own undo step. |
-| `src/editor/browser.rs` | Stable widget ids; **own list scrolling** instead of `ScrollArea` (offset kept in `BrowserState`, own scrollbar); name field no longer swallowed by the 8-character limit; "SHOW THE LIBRARY FOLDER" uses `explorer`; import/save/tag areas got their own ids. |
-| `src/editor/save.rs` | Name field accepts more than 8 characters (rolls the last 8) instead of silently dropping keystrokes. |
+| `src/editor/browser.rs` | Stable widget ids; **own list scrolling** instead of `ScrollArea` (offset kept in `BrowserState`, own scrollbar); name field no longer swallowed by the 8-character limit; "SHOW THE LIBRARY FOLDER" uses `explorer`; import/save/tag areas got their own ids; **DELETE KIT / DELETE PATTERN** for the selected item, asking once more before the file is removed. |
+| `src/editor/save.rs` | Name field keeps the **first** 8 characters (the .SND name is 8 bytes) instead of the last 8 - a name with a space looked like only the part behind the space had been stored. |
+| `src/library.rs` | `delete_pattern()` removes a pattern's `.PAT` file from its project folder (the kit file next to it stays); projects carry the folder they were read from. |
 | `engine/shim/stm32f7xx_hal.h` | `arc4random()` (BSD/macOS) → xorshift under `_WIN32` (noise seeding only). |
 | `engine/lxr_entropia.c` | Comment only: ENTROPIA MOD sums both outputs into Out 1 on purpose, so per-voice outputs do not apply while it is on. |
 | `Cargo.toml` | Extra direct dependency on `egui-baseview` with the **`windows_keyboard_workaround`** feature → keyboard input in text fields, plus `windows-sys` for the keyboard hooks and two `[patch]` entries pointing `egui-baseview` and `baseview` at `vendor/`. |
@@ -328,8 +355,9 @@ play back.
 ## ALL PARAMS
 
 The ALL PARAMS button shows every parameter of a voice (or FX/master) at once, in the order of the
-menu pages. With Live's **Configure** on, touching a control there adds it to the device panel, where
-Live can MIDI-map it.
+menu pages. Both master views — CLASSIC and ENTROPIA MOD — end with the same MASTER row: SampleRt,
+Tune, Morph and Volume, so the global settings are MIDI-mappable from there too. With Live's
+**Configure** on, touching a control there adds it to the device panel, where Live can MIDI-map it.
 
 ## ENTROPIA MOD FX
 

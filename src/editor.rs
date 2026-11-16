@@ -528,14 +528,31 @@ fn small_button(ui: &mut Ui, rect: Rect, text: &str, enabled: bool) -> Response 
 /// The MORPH page shortcut in the bottom row: while the sequencer runs, the step keys show steps and
 /// the panel's own MORPH key is out of reach.
 fn morph_button(ui: &mut Ui, st: &mut State) {
-    let rect = Rect::from_center_size(p(192.0, 246.0), Vec2::new(32.0 * S, 7.5 * S));
-    let lit = st.page == Page::Morph;
+    page_button(ui, st, Page::Morph, "MORPH", 192.0, "kit A, kit B and the morph amount");
+}
+
+/// The CONFIG page shortcut next to it, for the same reason.
+fn config_button(ui: &mut Ui, st: &mut State) {
+    page_button(
+        ui,
+        st,
+        Page::Config,
+        "CONFIG",
+        228.0,
+        "master sample rate, master tune and the morph amount",
+    );
+}
+
+/// A page shortcut in the bottom row; lit while its page is shown.
+fn page_button(ui: &mut Ui, st: &mut State, page: Page, text: &str, x: f32, help: &str) {
+    let rect = Rect::from_center_size(p(x, 246.0), Vec2::new(32.0 * S, 7.5 * S));
+    let lit = st.page == page;
     let resp = ui.allocate_rect(rect, Sense::click());
     let painter = ui.painter();
     painter.rect_filled(rect, 2.0, if lit { LED_RED } else if resp.hovered() { BUTTON } else { BUTTON_DIM });
-    painter.text(rect.center(), Align2::CENTER_CENTER, "MORPH", FontId::proportional(3.8 * S), if lit { PANEL } else { LABEL });
-    if resp.on_hover_text("kit A, kit B and the morph amount").clicked() {
-        st.toggle_page(Page::Morph);
+    painter.text(rect.center(), Align2::CENTER_CENTER, text, FontId::proportional(3.8 * S), if lit { PANEL } else { LABEL });
+    if resp.on_hover_text(help).clicked() {
+        st.toggle_page(page);
     }
 }
 
@@ -636,10 +653,9 @@ fn draw_panel(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
     for (k, c) in MODEL.chars().enumerate() {
         painter.text(p(17.0 + k as f32 * 6.2, 246.0), Align2::CENTER_CENTER, c, FontId::proportional(7.0 * S), LABEL);
     }
-    painter.text(p(250.0, 246.0), Align2::CENTER_CENTER, "GPL-3.0 FIRMWARE BUILD", FontId::proportional(4.5 * S), LABEL_DIM);
-
     voice_clipboard(ui, setter, st);
     morph_button(ui, st);
+    config_button(ui, st);
 
     history::buttons(
         ui,

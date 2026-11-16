@@ -91,7 +91,8 @@ fn master_row(params: &LxrParams) -> Vec<Control<'_>> {
         .iter()
         .filter(|info| info.group == "Master")
         .filter_map(|info| params.by_index(info.index).map(|p| Control::Int(p, info.index)))
-        .chain(std::iter::once(Control::Int(&params.morph, u16::MAX)))
+        .chain(std::iter::once(Control::Int(&params.tune, crate::PARAM_MASTER_TUNE)))
+        .chain(std::iter::once(Control::Int(&params.morph, crate::PARAM_MORPH)))
         .chain(std::iter::once(Control::Float(&params.volume)))
         .collect()
 }

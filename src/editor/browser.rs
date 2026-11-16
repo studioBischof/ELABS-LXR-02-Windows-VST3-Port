@@ -36,6 +36,8 @@ pub(super) struct BrowserState {
     list_offset: f32,
     /// result of the last save and until when to show it
     message: Option<(String, f64)>,
+    /// a delete was asked for: item key and until when a second click really deletes it
+    confirm_delete: Option<(String, f64)>,
 }
 
 impl BrowserState {
@@ -57,6 +59,7 @@ impl BrowserState {
             save_focus: false,
             list_offset: 0.0,
             message: None,
+            confirm_delete: None,
         }
     }
 }
@@ -169,6 +172,18 @@ fn button(ui: &mut Ui, rect: Rect, text: &str, lit: bool) -> Response {
     painter.rect_filled(rect, 4.0, if lit { LED_RED } else if resp.hovered() { BUTTON } else { BUTTON_DIM });
     painter.text(rect.center(), Align2::CENTER_CENTER, text, FontId::proportional(12.0), if lit { PANEL } else { LABEL });
     resp
+}
+
+/// The note lock switch and its caption, drawn under the kit lock on both tabs.
+fn note_lock_switch(ui: &mut Ui, painter: &egui::Painter, st: &mut State, top: f32) {
+    let on = st.params.seq.note_lock.load(Ordering::Acquire);
+    painter.text(Pos2::new(16.0, top + 6.0), Align2::LEFT_CENTER, "NOTE LOCK KIT", FontId::proportional(11.0), LED_RED);
+    let r = Rect::from_min_size(Pos2::new(16.0, top + 16.0), Vec2::new(180.0, 24.0));
+    let resp = button(ui, r, if on { "on" } else { "off" }, on)
+        .on_hover_text("on: every step plays at the pitch set in the kit - the note stored in the pattern is ignored\n(the factory SD patterns carry +3 semitones in every step, own patterns 0)");
+    if resp.clicked() {
+        st.params.seq.set_note_lock(!on);
+    }
 }
 
 fn load(st: &mut State, setter: &ParamSetter, target: &Target) {
@@ -425,7 +440,7 @@ fn draw_inner(ui: &mut Ui, setter: &ParamSetter, st: &mut State, b: &mut Browser
         shown.sort_by(|a, c| c.1.stars.cmp(&a.1.stars));
     }
 
-    // ---- left: voice locks (kits), then bank / project and tag filters
+    // ---- left: voice locks (kits) / kit lock (patterns), then bank / project and tag filters
     let mut top = 52.0;
     if b.tab == Tab::Kits {
         painter.text(Pos2::new(16.0, top + 6.0), Align2::LEFT_CENTER, "LOCK (keep when loading)", FontId::proportional(11.0), LED_RED);
@@ -438,7 +453,20 @@ fn draw_inner(ui: &mut Ui, setter: &ParamSetter, st: &mut State, b: &mut Browser
             }
         }
         top += 76.0;
+    } else {
+        // the same switch as knob 3 on the PATTERN page: a pattern keeps the kit that is loaded
+        let follows = st.params.seq.kit_follows.load(Ordering::Acquire);
+        painter.text(Pos2::new(16.0, top + 6.0), Align2::LEFT_CENTER, "LOCK KIT WHEN LOADING PATTERN", FontId::proportional(11.0), LED_RED);
+        let r = Rect::from_min_size(Pos2::new(16.0, top + 16.0), Vec2::new(180.0, 24.0));
+        let resp = button(ui, r, if follows { "off" } else { "on" }, !follows)
+            .on_hover_text("on: loading a pattern keeps the sound that is loaded - its kit is not loaded with it\n(knob 3 on the PATTERN page is the same switch)");
+        if resp.clicked() {
+            st.params.seq.kit_follows.fetch_xor(true, Ordering::AcqRel);
+        }
+        top += 44.0;
     }
+    note_lock_switch(ui, &painter, st, top);
+    top += 52.0;
     let left = Rect::from_min_max(Pos2::new(16.0, top), Pos2::new(196.0, h - 16.0));
     let mut groups: Vec<String> = Vec::new();
     for item in &all {
@@ -620,27 +648,54 @@ fn draw_inner(ui: &mut Ui, setter: &ParamSetter, st: &mut State, b: &mut Browser
                 b.favorites.toggle_tag(&item.key, &t);
             }
 
-            // delete the kit from the library (built-in banks have no file to remove)
+            // delete the selected kit or pattern from the library (the built-in banks and projects
+            // have no file to remove); the first click only asks
             let now = ui.input(|i| i.time);
             let del = Rect::from_min_max(Pos2::new(right.left() + 10.0, right.bottom() - 36.0), right.max - Vec2::new(10.0, 8.0));
             let is_kit = matches!(item.target, Target::Kit(_));
-            let resp = button(ui, del, "DELETE KIT", false);
-            let resp = if is_kit {
-                resp.on_hover_text("removes this kit's .SND file from the library")
-            } else {
-                resp.on_hover_text("only kits from the library can be deleted")
+            let armed = b.confirm_delete.as_ref().is_some_and(|(key, until)| key == &item.key && now < *until);
+            let label = match (armed, b.tab) {
+                (true, _) => "REALLY DELETE?",
+                (false, Tab::Kits) => "DELETE KIT",
+                (false, Tab::Patterns) => "DELETE PATTERN",
             };
-            if resp.clicked() && is_kit {
-                let text = match crate::library::delete_kit(&item.name) {
-                    Ok(true) => {
-                        st.kits = crate::kits::all_kits();
-                        b.selected = None;
-                        format!("deleted {} from the library", item.name)
-                    }
-                    Ok(false) => format!("{} is a built-in kit - nothing to delete", item.name),
-                    Err(e) => format!("not deleted: {e}"),
-                };
-                b.message = Some((text, now + 6.0));
+            let resp = button(ui, del, label, armed).on_hover_text(match (armed, is_kit) {
+                (true, true) => "click again: the kit's .SND file is removed from the library",
+                (true, false) => "click again: the pattern's .PAT file is removed from its project folder",
+                (false, true) => "removes this kit's .SND file from the library",
+                (false, false) => "removes this pattern's .PAT file from its project folder",
+            });
+            if resp.clicked() {
+                if armed {
+                    b.confirm_delete = None;
+                    let text = match &item.target {
+                        Target::Kit(_) => match crate::library::delete_kit(&item.name) {
+                            Ok(true) => {
+                                st.kits = crate::kits::all_kits();
+                                b.selected = None;
+                                format!("deleted {} from the library", item.name)
+                            }
+                            Ok(false) => format!("{} is a built-in kit - nothing to delete", item.name),
+                            Err(e) => format!("not deleted: {e}"),
+                        },
+                        Target::Pattern { project, nr } => match st.projects.get(*project).and_then(|p| p.dir.clone()) {
+                            Some(dir) => match crate::library::delete_pattern(&dir, *nr) {
+                                Ok(true) => {
+                                    save::reload_projects(st);
+                                    b.selected = None;
+                                    format!("deleted pattern {} from {}", item.name, item.group)
+                                }
+                                Ok(false) => format!("no file for pattern {} in {}", item.name, item.group),
+                                Err(e) => format!("not deleted: {e}"),
+                            },
+                            None => format!("{} is built in - nothing to delete", item.group),
+                        },
+                    };
+                    b.message = Some((text, now + 6.0));
+                } else {
+                    b.confirm_delete = Some((item.key.clone(), now + 5.0));
+                    b.message = None;
+                }
             }
             if let Some((text, until)) = &b.message {
                 if now < *until {

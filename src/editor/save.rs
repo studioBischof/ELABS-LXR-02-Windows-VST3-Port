@@ -115,23 +115,21 @@ pub(super) fn name_field(ui: &mut Ui, st: &mut State, setter: &ParamSetter, rect
         .font(FontId::monospace(13.0))
         .hint_text("type a name")
         .desired_width(rect.width());
-    let resp = ui.put(rect, edit).on_hover_text("type the name; Enter saves");
+    let resp = ui.put(rect, edit).on_hover_text("type the name (8 characters, a space counts as one); Enter saves");
     if std::mem::take(&mut st.save.focus) {
         select_all(ui, &resp, text.chars().count());
     }
     if resp.changed() {
-        // a full 8 character name would swallow the next keystroke: keep the last 8 instead, so the
-        // name types over itself like on the hardware
-        let mut typed: Vec<char> = text
+        // the .SND name is 8 bytes (as on the LXR) and a space counts as one of them: keep the eight
+        // the user started with. It used to keep the last eight, so "MORPH KIT" became "ORPH KIT" -
+        // a name with a space looked like only the part behind it had been stored
+        let typed: String = text
             .chars()
             .filter(|c| c.is_ascii() && CHARSET.contains(&(*c as u8)))
+            .take(NAME_LEN)
             .collect();
-        if typed.len() > NAME_LEN {
-            typed.drain(..typed.len() - NAME_LEN);
-        }
-        let typed: String = typed.into_iter().collect();
         set_name(&mut st.save, &typed);
-        st.save.cursor = typed.len().min(NAME_LEN - 1);
+        st.save.cursor = typed.chars().count().min(NAME_LEN - 1);
         st.save.text = typed;
     }
     if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -220,10 +218,11 @@ fn save(st: &mut State, setter: &ParamSetter, now: f64) {
         Err(e) => (format!("not saved: {e}"), false),
     };
     st.save.message = Some((text.clone(), now + 4.0));
+    let from_morph = std::mem::take(&mut st.save.from_morph);
     // a kit baked on the MORPH page holds the sound as it was heard: the morph goes back to 0 (a
     // second morph on top of the baked values would move the sound again), the new kit becomes the
     // loaded one, and the display shows kit A and kit B again
-    if ok && std::mem::take(&mut st.save.from_morph) {
+    if ok && from_morph {
         setter.begin_set_parameter(&st.params.morph);
         setter.set_parameter(&st.params.morph, 0);
         setter.end_set_parameter(&st.params.morph);
@@ -232,6 +231,11 @@ fn save(st: &mut State, setter: &ParamSetter, now: f64) {
             st.kit_index = i;
         }
         st.page = Page::Morph;
+        history::say(st, text, now);
+    } else if ok && st.page == Page::Save {
+        // saved from the panel's SAVE key: back to the page it was opened from, so the display does
+        // not keep asking "ok?" - the result shows as a short note at the bottom of the panel
+        st.page = st.last_page;
         history::say(st, text, now);
     }
 }

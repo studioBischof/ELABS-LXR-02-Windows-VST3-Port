@@ -48,6 +48,12 @@ pub(crate) struct VoiceClip {
     pub fader: f32,
 }
 
+/// Pseudo parameter index for the CONFIG page's master tune: it is a plugin parameter, not one of
+/// the firmware's (which end well below this).
+pub const PARAM_MASTER_TUNE: u16 = 1000;
+/// ... and the same for the morph amount, so the CONFIG page can perform it too.
+pub const PARAM_MORPH: u16 = 1001;
+
 pub struct LxrParams {
     editor_state: Arc<EguiState>,
     sound: Vec<IntParam>,
@@ -59,6 +65,8 @@ pub struct LxrParams {
     seq_on: BoolParam,
     /// morph from the kit towards the morph kit (kit B), 0-255 like the LXR
     morph: IntParam,
+    /// tunes every voice of the kit up or down, in semitones (CONFIG page, not part of the kit)
+    tune: IntParam,
     /// ENTROPIA MOD FX instead of the LXR's own FX bus (CLASSIC)
     fx_mode: BoolParam,
     /// ENTROPIA MOD FX settings, engine numbering (entropia.rs), with the ids the host saves them under
@@ -117,6 +125,9 @@ impl LxrParams {
             volume,
             seq_on: BoolParam::new("Sequencer", false),
             morph: IntParam::new("Morph", 0, IntRange::Linear { min: 0, max: 255 }),
+            tune: IntParam::new("Master Tune", 0, IntRange::Linear { min: -24, max: 24 })
+                .with_unit(" st")
+                .with_value_to_string(Arc::new(|v| format!("{v:+}"))),
             fx_mode: BoolParam::new("FX Mode", false)
                 .with_value_to_string(Arc::new(|on| entropia::FX_MODES[on as usize].to_string()))
                 .with_string_to_value(Arc::new(|s| entropia::FX_MODES.iter().position(|m| m.eq_ignore_ascii_case(s.trim())).map(|i| i == 1))),
@@ -149,6 +160,13 @@ impl LxrParams {
 
     /// The plugin parameter for a firmware parameter index, if the plugin exposes it.
     pub fn by_index(&self, index: u16) -> Option<&IntParam> {
+        // the CONFIG page's own controls: not firmware parameters, but shown like one
+        if index == PARAM_MASTER_TUNE {
+            return Some(&self.tune);
+        }
+        if index == PARAM_MORPH {
+            return Some(&self.morph);
+        }
         let i = (*self.sound_by_index.get(index as usize)?)?;
         self.sound.get(i as usize)
     }
@@ -209,6 +227,7 @@ unsafe impl Params for LxrParams {
             .chain(std::iter::once(("volume".to_string(), self.volume.as_ptr(), "Master".to_string())))
             .chain(std::iter::once(("seq_on".to_string(), self.seq_on.as_ptr(), "Sequencer".to_string())))
             .chain(std::iter::once(("morph".to_string(), self.morph.as_ptr(), "Master".to_string())))
+            .chain(std::iter::once(("tune".to_string(), self.tune.as_ptr(), "Master".to_string())))
             .chain(std::iter::once(("fx_mode".to_string(), self.fx_mode.as_ptr(), "Entropia Mod FX".to_string())))
             .chain(self.fx.iter().enumerate().map(|(i, (key, p))| (key.clone(), p.as_ptr(), entropia::group(i as u16).to_string())))
             .collect()
@@ -233,6 +252,8 @@ unsafe impl Params for LxrParams {
         }
         let follows = self.seq.kit_follows.load(Ordering::Acquire);
         fields.insert("seq_kit_follows".to_string(), follows.to_string());
+        let note_lock = self.seq.note_lock.load(Ordering::Acquire);
+        fields.insert("seq_note_lock".to_string(), note_lock.to_string());
         fields.insert("maestro".to_string(), self.maestro.to_field());
         fields.insert("seq_mutes".to_string(), self.seq.mutes.load(Ordering::Acquire).to_string());
         if let Ok(song) = self.seq.song.lock() {
@@ -286,6 +307,10 @@ unsafe impl Params for LxrParams {
         }
         if let Some(follows) = serialized.get("seq_kit_follows") {
             self.seq.kit_follows.store(follows == "true", Ordering::Release);
+        }
+        if let Some(lock) = serialized.get("seq_note_lock") {
+            // the engine may already hold the patterns: send them all again with the new setting
+            self.seq.set_note_lock(lock == "true");
         }
         let seq = &self.seq;
         if let Some(text) = serialized.get("maestro") {
@@ -359,6 +384,8 @@ pub struct Lxr {
     /// sequencer state last sent to the engine (None = send again)
     sent_mutes: Option<u8>,
     sent_record: Option<bool>,
+    /// the master tune last sent with the patterns (None = send again)
+    sent_tune: Option<i32>,
     /// notes were recorded into the engine's patterns; copy them back to the plugin's
     recorded: bool,
     maestro: maestro::Maestro,
@@ -382,6 +409,7 @@ impl Default for Lxr {
             morph_seen: u32::MAX,
             sent_mutes: None,
             sent_record: None,
+            sent_tune: None,
             recorded: false,
             maestro: maestro::Maestro::default(),
         }
@@ -444,12 +472,30 @@ impl Lxr {
             engine.set_bpm(bpm);
         }
         let seq = &self.params.seq;
+        // the master tune (CONFIG page) moves every note the pattern plays: send them all again
+        let tune = self.params.tune.value();
+        if self.sent_tune != Some(tune) {
+            self.sent_tune = Some(tune);
+            seq.dirty.store(u64::MAX, Ordering::Release);
+        }
         let dirty = seq.dirty.load(Ordering::Acquire);
         if dirty != 0 {
+            // with the note lock on the engine gets the patterns with every step at the kit's own
+            // pitch; the pattern data itself keeps what the STEP page shows
+            let note_lock = seq.note_lock.load(Ordering::Acquire);
             // the panel only holds this lock for a moment; try again next block if it has it
             if let Ok(patterns) = seq.patterns.try_lock() {
                 for nr in (0..seq::NUM_PATTERNS).filter(|nr| dirty & (1 << nr) != 0) {
-                    engine.seq_read_pattern(nr as u8, &patterns[nr]);
+                    if note_lock || tune != 0 {
+                        let mut copy = patterns[nr].clone();
+                        if note_lock {
+                            crate::seq::SeqShared::lock_notes(&mut copy);
+                        }
+                        crate::seq::SeqShared::transpose_notes(&mut copy, tune);
+                        engine.seq_read_pattern(nr as u8, &copy);
+                    } else {
+                        engine.seq_read_pattern(nr as u8, &patterns[nr]);
+                    }
                 }
                 seq.dirty.fetch_and(!dirty, Ordering::AcqRel);
             }
@@ -478,7 +524,9 @@ impl Lxr {
     /// Plays a voice; while recording with the sequencer running, also writes it into the pattern.
     fn trigger(&mut self, voice: u8, note: u8, velocity: u8) {
         let Some(engine) = self.engine.as_mut() else { return };
-        engine.note_on(voice, note, velocity);
+        // the master tune moves what is heard; a recorded note keeps the pitch of the kit's step
+        let tune = self.params.tune.value();
+        engine.note_on(voice, (note as i32 + tune).clamp(0, 127) as u8, velocity);
         if self.clock.is_running() && self.params.seq.record.load(Ordering::Acquire) {
             engine.seq_record(voice, velocity, note);
             self.recorded = true;
@@ -588,6 +636,7 @@ impl Plugin for Lxr {
             self.params.seq.song_dirty.store(true, Ordering::Release);
             self.sent_mutes = None;
             self.sent_record = None;
+            self.sent_tune = None;
             self.last_bpm = 0;
         }
         true

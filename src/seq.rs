@@ -11,6 +11,9 @@ use crate::project_table::{ProjectInfo, KIT_BYTES, PROJECTS, PROJECT_BYTES, PROJ
 pub use crate::project_table::PATTERN_BYTES;
 pub const NUM_PATTERNS: usize = 64;
 pub const NUM_TRACKS: usize = 7;
+/// The note a step needs to play its voice at the pitch set in the kit (the firmware's
+/// `SEQ_DEFAULT_NOTE`); every other value transposes it by that many semitones.
+pub const DEFAULT_NOTE: u8 = 60;
 const STEPS: usize = 64;
 const MAIN_STEPS_OFFSET: usize = 8 + 6 + NUM_TRACKS * STEPS * 8;
 const SHUFFLE_OFFSET: usize = MAIN_STEPS_OFFSET + NUM_TRACKS * 4 * 2;
@@ -339,11 +342,13 @@ pub struct Project {
     pub name: String,
     pub patterns: Vec<Option<Vec<u8>>>,
     pub kits: Vec<Option<(String, Vec<u8>)>>,
+    /// the folder the patterns were read from, for the library's built-in projects None
+    pub dir: Option<std::path::PathBuf>,
 }
 
 impl Project {
     pub fn empty(name: String) -> Self {
-        Self { name, patterns: vec![None; NUM_PATTERNS], kits: vec![None; NUM_PATTERNS] }
+        Self { name, patterns: vec![None; NUM_PATTERNS], kits: vec![None; NUM_PATTERNS], dir: None }
     }
 
     pub fn pattern(&self, nr: usize) -> Vec<u8> {
@@ -362,6 +367,7 @@ pub fn all_projects() -> Vec<Project> {
             name: PROJECTS[p].name.to_string(),
             patterns: (0..NUM_PATTERNS).map(|nr| PROJECTS[p].has_pattern[nr].then(|| project_pattern(p, nr))).collect(),
             kits: (0..NUM_PATTERNS).map(|nr| project_kit(p, nr).map(|(n, d)| (n.to_string(), d.to_vec()))).collect(),
+            dir: None,
         })
         .collect();
     out.extend(crate::library::projects());
@@ -397,6 +403,8 @@ pub struct SeqShared {
     pub project_kits: Mutex<Vec<Option<(String, Vec<u8>)>>>,
     /// load the kit that goes with a pattern when the sequencer switches to it
     pub kit_follows: AtomicBool,
+    /// play patterns at the kit's own pitch, ignoring the note stored in their steps
+    pub note_lock: AtomicBool,
     /// euclid generator settings per track
     pub euclid: Mutex<[Euclid; NUM_TRACKS]>,
     /// muted tracks, one bit each
@@ -428,6 +436,7 @@ impl Default for SeqShared {
             project: Mutex::new(None),
             project_kits: Mutex::new(vec![None; NUM_PATTERNS]),
             kit_follows: AtomicBool::new(true),
+            note_lock: AtomicBool::new(true),
             euclid: Mutex::new([Euclid::default(); NUM_TRACKS]),
             mutes: AtomicU8::new(0),
             record: AtomicBool::new(false),
@@ -448,6 +457,39 @@ impl Default for SeqShared {
 impl SeqShared {
     pub fn mark_dirty(&self, nr: usize) {
         self.dirty.fetch_or(1 << nr, Ordering::AcqRel);
+    }
+
+    /// With the note lock on, patterns play at the pitch of the loaded kit whatever notes their
+    /// steps carry (the factory SD content has +3 semitones in every step). The engine holds its own
+    /// copy, so every pattern is sent again when the switch moves.
+    pub fn set_note_lock(&self, on: bool) {
+        self.note_lock.store(on, Ordering::Release);
+        self.dirty.store(u64::MAX, Ordering::Release);
+    }
+
+    /// Sets every step's note to the kit's own pitch, for the copy the engine plays.
+    pub fn lock_notes(pattern: &mut [u8]) {
+        for track in 0..NUM_TRACKS {
+            for step in 0..STEPS {
+                if let Some(note) = pattern.get_mut(step_at(track, step) + 2) {
+                    *note = DEFAULT_NOTE;
+                }
+            }
+        }
+    }
+
+    /// Moves every step's note up or down, for the copy the engine plays.
+    pub fn transpose_notes(pattern: &mut [u8], semitones: i32) {
+        if semitones == 0 {
+            return;
+        }
+        for track in 0..NUM_TRACKS {
+            for step in 0..STEPS {
+                if let Some(note) = pattern.get_mut(step_at(track, step) + 2) {
+                    *note = (*note as i32 + semitones).clamp(0, 127) as u8;
+                }
+            }
+        }
     }
 
     /// Replaces all patterns and project kits with a project's.
@@ -557,6 +599,22 @@ mod tests {
         for r in 0..16 {
             assert_eq!(bits(16, 5, r).count_ones(), 5);
             assert_eq!(bits(13, 5, r) >> 13, 0);
+        }
+    }
+
+    #[test]
+    fn note_lock_puts_every_step_at_the_kits_pitch() {
+        let mut p = empty_pattern();
+        for (track, s, note) in [(0usize, 0usize, 63u8), (5, 7, 92), (6, 63, 0)] {
+            let mut d = step(&p, track, s);
+            d.note = note;
+            set_step(&mut p, track, s, d);
+        }
+        SeqShared::lock_notes(&mut p);
+        for track in 0..NUM_TRACKS {
+            for s in 0..STEPS {
+                assert_eq!(step(&p, track, s).note, DEFAULT_NOTE, "track {track} step {s}");
+            }
         }
     }
 }
