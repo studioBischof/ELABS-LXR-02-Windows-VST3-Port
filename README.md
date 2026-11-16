@@ -1,4 +1,4 @@
-# A Windows x86 VST3 Port of the ELABS LXR-02 Clone
+# A Windows x64 VST3 Port of the ELABS LXR-02 Clone
 
 This project ports the macOS ELABS-RLX-02-LXR02-CLONE-VST (Rust + nih-plug + egui) to run on Windows 11 x86 as a VST3. 
 
