@@ -15,6 +15,7 @@ This project ports the macOS ELABS-RLX-02-LXR02-CLONE-VST (Rust + nih-plug + egu
   loading another kit A keeps B. Knob 3 saves what is heard (morph included) as a new kit: it opens
   the SAVE page for the name, then loads the new kit, puts the morph back to 0 (the baked values
   already contain it) and returns to the kit A / kit B display.
+* **Delete Preset** in the right detail view of the browser.
   
 ---
 
