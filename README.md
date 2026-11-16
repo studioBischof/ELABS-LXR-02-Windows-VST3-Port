@@ -21,13 +21,6 @@ This project ports the macOS ELABS-RLX-02-LXR02-CLONE-VST (Rust + nih-plug + egu
   PATTERN on the PATTERNS tab: the first click turns the button into "REALLY DELETE?", the second
   removes the file (kit `.SND` or pattern `.PAT`). Built-in banks and projects have no file, so they
   are left alone.
-* **Text input works in every host** — Bitwig, Ableton Live, REAPER and the standalone: typing in the
-  browser search field and the save/rename fields, including uppercase, punctuation and Backspace.
-  Two Windows hooks on the editor thread do this (see section 7); where the host keeps the keyboard
-  (REAPER, Ableton) the characters are handed straight to egui while the pointer is over the panel.
-* **Kit names keep their first eight characters** — the .SND name is 8 bytes and a space counts as
-  one; the field used to keep the *last* eight, so a name with a space looked like only the part behind
-  the space had been stored.
 * **Lock Kit when loading a pattern** — on the PATTERNS tab a switch at the left, above the project
   list: while it is on, clicking a pattern loads only its steps and the sound stays as it is. It is the
   same switch as knob 3 on the PATTERN page ("kit follows: off"), so both stay in step.
@@ -39,10 +32,6 @@ This project ports the macOS ELABS-RLX-02-LXR02-CLONE-VST (Rust + nih-plug + egu
 * **Master Tune** (CONFIG page, knob 2): tunes the whole kit up or down in semitones (−24…+24). It moves
   what is played — the sequencer's steps, the panel keys and MIDI notes — and belongs to the project,
   not to the kit, so loading another kit keeps it.
-* **SAVE page closes itself** — once the name is confirmed (Enter or the DATA encoder) the panel goes
-  back to the page SAVE was opened from and shows "saved …" at the bottom for a moment. From the MORPH
-  page it goes back to kit A / kit B instead. A failed save stays put with the error text.
-
 ---
 
 ## 2. Download the factory LXR presets
