@@ -564,6 +564,12 @@ fn draw_panel(ui: &mut Ui, setter: &ParamSetter, st: &mut State) {
             st.led_until[v] = now + 0.12;
         }
     }
+    // a page without a second half (CONFIG, the browser pages) must not keep the second half of the
+    // page before it: that showed an empty display and dead knobs
+    if st.half == 1 && !st.sub_page()[4..].iter().any(Option::is_some) {
+        st.half = 0;
+        st.active = st.active.min(3);
+    }
 
     sequencer::follow_kit(setter, st);
     if let Page::Voice(v) = st.page {
